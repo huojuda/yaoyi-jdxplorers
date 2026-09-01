@@ -2,10 +2,10 @@
 // 缓存策略：
 //   - 导航请求 → 缓存优先（应用外壳秒开）+ 离线降级到 index.html
 //   - 静态资源 → 缓存优先 + 网络回填
-//   - POST /api/recognize → 网络优先，永不缓存（每次图片不同）
+//   - 所有 /api/* 请求 → 纯网络，永不缓存（识别/配对/事件均需实时）
 // 版本更新：改 CACHE_NAME 版本号即可自动清理旧缓存
 
-const CACHE_NAME = 'yaoyi-v1.0.0';
+const CACHE_NAME = 'yaoyi-v2.0.0';
 
 // 应用外壳：单文件 SPA，CSS/JS 已内嵌进 index.html
 const APP_SHELL = [
@@ -55,10 +55,10 @@ self.addEventListener('fetch', (event) => {
   // 仅处理同源请求，跨域资源交给浏览器默认行为
   if (url.origin !== self.location.origin) return;
 
-  // ---- 策略 A：POST /api/recognize → 网络优先，永不缓存 ----
-  // 每次拍的照片不同，识别结果必须实时联网；POST body 也无法被 Cache API 缓存
-  if (req.method === 'POST' && url.pathname === '/api/recognize') {
-    event.respondWith(handleApiRecognize(req));
+  // ---- 策略 A：所有 /api/* 请求 → 纯网络，永不缓存 ----
+  // 识别/配对/事件均需实时通信，不能使用缓存
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(handleApiRequest(req));
     return;
   }
 
@@ -75,15 +75,15 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(handleStaticAsset(req));
 });
 
-// POST /api/recognize：纯网络，失败时返回结构化离线错误
-async function handleApiRecognize(req) {
+// 所有 /api/* 请求：纯网络，失败时返回结构化离线错误
+async function handleApiRequest(req) {
   try {
     return await fetch(req);
   } catch (err) {
-    // 老人断网拍照时，返回 JSON 让前端弹"请连接网络后重试"
+    // 离线时返回 JSON 错误，让前端展示友好提示
     return new Response(
       JSON.stringify({
-        error: '网络不可用，药品识别需要联网，请检查网络后重试',
+        error: '网络不可用，请检查网络后重试',
         offline: true
       }),
       {

@@ -25,3 +25,6 @@ screenshot_parts/
 # IDE
 .vscode/
 .idea/
+
+.vercel
+.env*
