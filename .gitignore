@@ -1,0 +1,27 @@
+# 敏感文件（含 API Key，禁止提交）
+api_config.json
+models.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 测试与脚本（部署不需要）
+test_*.py
+test_*.js
+probe_*.py
+filter_models.py
+gen_*.py
+split_screenshot.py
+screenshot*.png
+screenshot_parts/
+
+# 资料包与文档（部署不需要）
+../JDXplorers资料包/
+../项目交接文档.md
+../参赛说明_药忆_JDXplorers.docx
+
+# IDE
+.vscode/
+.idea/

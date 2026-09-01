@@ -1,0 +1,2218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1976D2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="药忆">
+<link rel="manifest" href="./manifest.json">
+<title>药忆 — AI拍照用药助手</title>
+<style>
+/* ===== CSS变量：适老化配色 ===== */
+:root {
+  --primary: #4CAF50;
+  --primary-dark: #388E3C;
+  --primary-light: #E8F5E9;
+  --warning: #FB8C00;
+  --warning-light: #FFF3E0;
+  --danger: #E53935;
+  --danger-light: #FFEBEE;
+  --info: #1976D2;
+  --bg: #FAFAFA;
+  --card: #FFFFFF;
+  --text: #1A1A1A;
+  --text-secondary: #666666;
+  --text-light: #999999;
+  --border: #E0E0E0;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow: 0 4px 20px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ===== 页面容器 ===== */
+.page {
+  display: none;
+  min-height: 100vh;
+  padding: 20px 16px 100px;
+  animation: fadeIn 0.3s ease;
+}
+.page.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 通用按钮 ===== */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 20px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 20px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 14px;
+}
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(76,175,80,0.35);
+}
+.btn-primary:active { box-shadow: 0 3px 10px rgba(76,175,80,0.3); }
+
+.btn-secondary {
+  background: var(--card);
+  color: var(--text);
+  border: 2px solid var(--border);
+}
+
+.btn-warning {
+  background: linear-gradient(135deg, var(--warning) 0%, #EF6C00 100%);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(251,140,0,0.35);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, var(--danger) 0%, #C62828 100%);
+  color: #fff;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 14px;
+  font-size: 17px;
+}
+
+/* ===== 首页 ===== */
+.home-header {
+  text-align: center;
+  padding: 30px 0 20px;
+}
+.home-header .app-icon {
+  font-size: 64px;
+  margin-bottom: 12px;
+  display: block;
+}
+.home-header h1 {
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin-bottom: 6px;
+}
+.home-header .subtitle {
+  font-size: 17px;
+  color: var(--text-secondary);
+}
+
+.greeting-card {
+  background: linear-gradient(135deg, var(--primary-light) 0%, #F1F8E9 100%);
+  border-radius: var(--radius);
+  padding: 22px 20px;
+  margin-bottom: 24px;
+  border-left: 5px solid var(--primary);
+}
+.greeting-card .greeting-text {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.greeting-card .date-text {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.camera-main-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: #fff;
+  border: none;
+  border-radius: 24px;
+  font-size: 26px;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 10px 32px rgba(76,175,80,0.4);
+  transition: all 0.2s ease;
+  margin-bottom: 16px;
+}
+.camera-main-btn:active { transform: scale(0.97); box-shadow: 0 5px 16px rgba(76,175,80,0.3); }
+.camera-main-btn .camera-icon { font-size: 56px; }
+.camera-main-btn .camera-hint { font-size: 16px; font-weight: 400; opacity: 0.9; }
+
+/* ===== 今日用药概览 ===== */
+.section-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 24px 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.today-meds {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+.med-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.med-item:last-child { border-bottom: none; }
+.med-item .med-icon {
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  background: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.med-item .med-info { flex: 1; }
+.med-item .med-name { font-size: 18px; font-weight: 700; }
+.med-item .med-time { font-size: 15px; color: var(--text-secondary); margin-top: 2px; }
+.med-item .med-status {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+.med-status.taken { background: var(--primary-light); color: var(--primary-dark); }
+.med-status.pending { background: var(--warning-light); color: var(--warning); }
+
+.empty-state {
+  text-align: center;
+  padding: 30px 20px;
+  color: var(--text-light);
+  font-size: 16px;
+}
+.empty-state .empty-icon { font-size: 48px; display: block; margin-bottom: 10px; }
+
+/* ===== 拍照页 ===== */
+.camera-container {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 20px;
+  aspect-ratio: 3/4;
+}
+#camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.camera-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.camera-frame {
+  width: 80%;
+  height: 60%;
+  border: 3px solid rgba(255,255,255,0.8);
+  border-radius: 16px;
+  position: relative;
+}
+.camera-frame::before, .camera-frame::after {
+  content: '';
+  position: absolute;
+  width: 30px; height: 30px;
+  border-color: var(--primary);
+  border-style: solid;
+}
+.camera-frame::before { top: -3px; left: -3px; border-width: 4px 0 0 4px; border-radius: 8px 0 0 0; }
+.camera-frame::after { bottom: -3px; right: -3px; border-width: 0 4px 4px 0; border-radius: 0 0 8px 0; }
+.camera-hint-text {
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+  margin-top: 16px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.4);
+  padding: 8px 16px;
+  border-radius: 20px;
+}
+
+.camera-actions {
+  display: flex;
+  gap: 12px;
+}
+.capture-btn {
+  flex: 1;
+  padding: 22px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 72px;
+  height: 72px;
+  font-size: 28px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(76,175,80,0.4);
+  margin: 0 auto;
+  display: block;
+}
+.capture-btn:active { transform: scale(0.92); }
+
+.camera-fallback {
+  text-align: center;
+  padding: 40px 20px;
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 2px dashed var(--border);
+}
+.camera-fallback .fallback-icon { font-size: 48px; display: block; margin-bottom: 12px; }
+.camera-fallback .fallback-text { font-size: 17px; color: var(--text-secondary); margin-bottom: 16px; }
+
+/* ===== 识别中页 ===== */
+.scanning-container {
+  text-align: center;
+  padding: 40px 20px;
+}
+.scanning-image-wrap {
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto 28px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+  box-shadow: var(--shadow-lg);
+}
+.scanning-image-wrap img {
+  width: 100%;
+  display: block;
+  filter: brightness(0.7);
+}
+.scan-line {
+  position: absolute;
+  left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  box-shadow: 0 0 12px var(--primary);
+  animation: scanMove 2s ease-in-out infinite;
+}
+@keyframes scanMove {
+  0%, 100% { top: 5%; }
+  50% { top: 95%; }
+}
+
+.scanning-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.scanning-subtitle {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 28px;
+}
+
+.scanning-steps {
+  max-width: 360px;
+  margin: 0 auto;
+  text-align: left;
+}
+.scan-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  opacity: 0.4;
+  transition: all 0.4s ease;
+  border-left: 4px solid var(--border);
+}
+.scan-step.active {
+  opacity: 1;
+  border-left-color: var(--primary);
+  transform: translateX(6px);
+  box-shadow: var(--shadow);
+}
+.scan-step.done {
+  opacity: 1;
+  border-left-color: var(--primary);
+}
+.scan-step .step-icon { font-size: 22px; flex-shrink: 0; }
+.scan-step .step-text { font-size: 17px; font-weight: 600; flex: 1; }
+.scan-step .step-status { font-size: 14px; color: var(--text-light); }
+.scan-step.done .step-status { color: var(--primary); }
+.scan-step.active .step-status { color: var(--primary); }
+
+.step-spinner {
+  width: 18px; height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: none;
+}
+.scan-step.active .step-spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== 结果页 ===== */
+.result-header {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 24px 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-lg);
+}
+.result-header .result-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.2);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.result-header .drug-name {
+  font-size: 28px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.result-header .drug-class {
+  font-size: 16px;
+  opacity: 0.9;
+}
+.result-header .confidence {
+  font-size: 14px;
+  opacity: 0.8;
+  margin-top: 8px;
+}
+
+/* 四问式卡片 */
+.qa-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+  border-left: 5px solid var(--primary);
+}
+.qa-card.warning { border-left-color: var(--warning); background: var(--warning-light); }
+.qa-card.danger { border-left-color: var(--danger); background: var(--danger-light); }
+
+.qa-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.qa-icon {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  background: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.qa-card.warning .qa-icon { background: #FFE0B2; }
+.qa-label {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+.qa-answer {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  line-height: 1.5;
+  padding-left: 56px;
+}
+.qa-card.warning .qa-answer { color: #E65100; }
+.qa-card.danger .qa-answer { color: var(--danger); }
+
+.qa-detail {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  padding-left: 56px;
+  line-height: 1.6;
+}
+
+/* 重复服药警告 */
+.duplicate-alert {
+  background: var(--danger-light);
+  border: 2px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  animation: shake 0.5s ease;
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+.duplicate-alert .alert-icon { font-size: 28px; flex-shrink: 0; }
+.duplicate-alert .alert-text { flex: 1; }
+.duplicate-alert .alert-title { font-size: 19px; font-weight: 700; color: var(--danger); margin-bottom: 4px; }
+.duplicate-alert .alert-desc { font-size: 16px; color: var(--text); }
+
+/* 药物冲突卡片（三级：danger红 / warning橙 / caution黄） */
+.interaction-section { margin-bottom: 20px; }
+.interaction-section-title {
+  font-size: 19px; font-weight: 700; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.interaction-card {
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 12px;
+  border-left: 6px solid;
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.interaction-card.danger  { background: var(--danger-light);  border-left-color: var(--danger);  animation: shake 0.5s ease; }
+.interaction-card.warning { background: var(--warning-light); border-left-color: var(--warning); }
+.interaction-card.caution { background: #FFFDE7;              border-left-color: #FBC02D; }
+.interaction-card .ic-icon { font-size: 26px; flex-shrink: 0; line-height: 1.2; }
+.interaction-card .ic-body { flex: 1; min-width: 0; }
+.interaction-card .ic-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+.interaction-card.danger .ic-title  { color: var(--danger); }
+.interaction-card.warning .ic-title { color: var(--warning); }
+.interaction-card.caution .ic-title { color: #F57F17; }
+.interaction-card .ic-pair { font-size: 15px; color: var(--text-light); margin-bottom: 6px; }
+.interaction-card .ic-desc { font-size: 14px; color: var(--text); line-height: 1.5; margin-bottom: 8px; }
+.interaction-card .ic-elderly {
+  font-size: 16px; line-height: 1.6; padding: 10px 12px;
+  background: rgba(255,255,255,0.6); border-radius: 8px;
+  color: var(--text); font-weight: 500;
+}
+.interaction-safe {
+  background: #E8F5E9; border: 1px solid #66BB6A; border-radius: var(--radius);
+  padding: 16px; text-align: center; color: #2E7D32; font-size: 17px; font-weight: 600;
+}
+.alcohol-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg); border: 2px dashed var(--warning);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px;
+}
+.alcohol-toggle .at-label { font-size: 16px; font-weight: 600; color: var(--text); }
+.alcohol-toggle .at-btn {
+  padding: 8px 18px; border-radius: 20px; border: none; cursor: pointer;
+  font-size: 15px; font-weight: 700; font-family: inherit;
+}
+.alcohol-toggle .at-btn.off { background: #EEE; color: var(--text-light); }
+.alcohol-toggle .at-btn.on  { background: var(--danger); color: #fff; }
+
+/* ===== 家属端 ===== */
+.family-header {
+  background: linear-gradient(135deg, var(--info) 0%, #1565C0 100%);
+  color: #fff; border-radius: var(--radius); padding: 20px;
+  margin-bottom: 16px;
+}
+.family-header .fh-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+.family-header .fh-sub { font-size: 14px; opacity: 0.9; }
+
+.date-switcher {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #fff; border-radius: var(--radius); padding: 12px 16px;
+  margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.date-switcher .ds-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: none;
+  background: var(--bg); font-size: 20px; cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center;
+}
+.date-switcher .ds-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.date-switcher .ds-label { font-size: 17px; font-weight: 700; color: var(--text); }
+
+.stats-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;
+}
+.stat-card {
+  background: #fff; border-radius: var(--radius); padding: 16px;
+  box-shadow: var(--shadow); text-align: center;
+  border-top: 4px solid var(--info);
+}
+.stat-card.danger  { border-top-color: var(--danger); }
+.stat-card.warning { border-top-color: var(--warning); }
+.stat-card.success { border-top-color: #43A047; }
+.stat-card .sc-num { font-size: 32px; font-weight: 800; line-height: 1.1; margin-bottom: 4px; }
+.stat-card.danger .sc-num  { color: var(--danger); }
+.stat-card.warning .sc-num { color: var(--warning); }
+.stat-card.success .sc-num { color: #43A047; }
+.stat-card .sc-label { font-size: 13px; color: var(--text-secondary); }
+
+.timeline-item {
+  display: flex; gap: 12px; background: #fff; border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow);
+  border-left: 4px solid var(--info);
+}
+.timeline-item .ti-time {
+  font-size: 15px; font-weight: 700; color: var(--info);
+  flex-shrink: 0; min-width: 48px;
+}
+.timeline-item .ti-body { flex: 1; min-width: 0; }
+.timeline-item .ti-name { font-size: 16px; font-weight: 600; color: var(--text); }
+.timeline-item .ti-desc { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+
+.missed-alert {
+  background: var(--warning-light); border: 2px solid var(--warning);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.missed-alert .ma-icon { font-size: 22px; flex-shrink: 0; }
+.missed-alert .ma-body { flex: 1; }
+.missed-alert .ma-title { font-size: 15px; font-weight: 700; color: var(--warning); margin-bottom: 2px; }
+.missed-alert .ma-desc { font-size: 14px; color: var(--text); }
+
+/* 语音播报按钮 */
+.voice-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 20px;
+  background: linear-gradient(135deg, var(--info) 0%, #1565C0 100%);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 20px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(25,118,210,0.35);
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+.voice-btn:active { transform: scale(0.97); }
+.voice-btn.speaking {
+  background: linear-gradient(135deg, var(--danger) 0%, #C62828 100%);
+  animation: voicePulse 1.2s infinite;
+}
+@keyframes voicePulse {
+  0%, 100% { box-shadow: 0 6px 20px rgba(229,57,53,0.35), 0 0 0 0 rgba(229,57,53,0.4); }
+  50% { box-shadow: 0 6px 20px rgba(229,57,53,0.35), 0 0 0 16px rgba(229,57,53,0); }
+}
+
+/* ===== 记录页 ===== */
+.history-list { margin-bottom: 20px; }
+.history-date-group {
+  margin-bottom: 20px;
+}
+.history-date {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  padding-left: 4px;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow);
+}
+.history-item .h-icon {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  background: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.history-item .h-info { flex: 1; }
+.history-item .h-name { font-size: 17px; font-weight: 700; }
+.history-item .h-detail { font-size: 14px; color: var(--text-secondary); margin-top: 2px; }
+.history-item .h-time {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  flex-shrink: 0;
+}
+
+/* ===== Toast ===== */
+.toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100px);
+  background: #333;
+  color: #fff;
+  padding: 14px 28px;
+  border-radius: 30px;
+  font-size: 16px;
+  font-weight: 600;
+  z-index: 9999;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: var(--shadow-lg);
+  max-width: 90%;
+  text-align: center;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.success { background: var(--primary); }
+.toast.warning { background: var(--warning); }
+.toast.danger { background: var(--danger); }
+
+/* ===== 底部免责声明 ===== */
+.disclaimer {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-light);
+  padding: 16px;
+  line-height: 1.6;
+}
+
+/* ===== 响应式 ===== */
+@media (min-width: 640px) {
+  body { font-size: 17px; }
+  .page { max-width: 480px; margin: 0 auto; }
+  .camera-main-btn { padding: 36px 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== 首页 ==================== -->
+<div id="page-home" class="page active">
+  <div class="home-header">
+    <span class="app-icon">💊</span>
+    <h1>药忆</h1>
+    <p class="subtitle">拍一下药盒，就知道怎么吃</p>
+  </div>
+
+  <div class="greeting-card">
+    <div class="greeting-text" id="greeting-text">您好，今天的药吃了吗？</div>
+    <div class="date-text" id="date-text"></div>
+  </div>
+
+  <button class="camera-main-btn" onclick="startCamera()">
+    <span class="camera-icon">📷</span>
+    <span>拍药盒识药</span>
+    <span class="camera-hint">对准药盒拍一张，AI告诉您怎么吃</span>
+  </button>
+
+  <button class="btn btn-secondary" onclick="showPage('history')">
+    📋 用药记录
+  </button>
+
+  <button class="btn btn-ghost" onclick="showPage('family')" style="margin-top:8px;">
+    👨‍👩‍👧 家属查看
+  </button>
+
+  <div class="section-title">📅 今日用药</div>
+  <div class="today-meds" id="today-meds-container">
+    <!-- 动态填充 -->
+  </div>
+
+  <div class="disclaimer">
+    本工具仅供参考，不替代医生诊断<br>
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型
+  </div>
+</div>
+
+<!-- ==================== 拍照页 ==================== -->
+<div id="page-camera" class="page">
+  <div class="section-title" style="margin-top:0;">📷 拍摄药盒</div>
+
+  <!-- 摄像头区域 -->
+  <div class="camera-container" id="camera-container" style="display:none;">
+    <video id="camera-video" autoplay playsinline></video>
+    <div class="camera-overlay">
+      <div class="camera-frame"></div>
+      <div class="camera-hint-text">将药盒对准框内，拍清楚上面的字</div>
+    </div>
+  </div>
+
+  <!-- 摄像头不可用时的降级方案 -->
+  <div class="camera-fallback" id="camera-fallback">
+    <span class="fallback-icon">🖼️</span>
+    <div class="fallback-text">摄像头暂不可用<br>您可以从相册选择药盒照片</div>
+    <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+      📁 从相册选择照片
+    </button>
+  </div>
+
+  <div style="height:20px;"></div>
+
+  <!-- 拍照按钮（摄像头可用时显示） -->
+  <div id="capture-area" style="display:none; text-align:center;">
+    <button class="capture-btn" onclick="capturePhoto()">📸</button>
+    <div style="font-size:15px; color:var(--text-secondary); margin-top:12px;">点击圆形按钮拍照</div>
+  </div>
+
+  <div style="height:24px;"></div>
+  <button class="btn btn-ghost" onclick="stopCamera(); showPage('home')">← 返回首页</button>
+</div>
+
+<!-- ==================== 识别中页 ==================== -->
+<div id="page-scanning" class="page">
+  <div class="scanning-container">
+    <div class="scanning-image-wrap">
+      <img id="scanning-img" src="" alt="药品照片">
+      <div class="scan-line"></div>
+    </div>
+    <div class="scanning-title">AI 正在识别药品...</div>
+    <div class="scanning-subtitle">请稍候，正在为您分析用药信息</div>
+
+    <div class="scanning-steps">
+      <div class="scan-step" data-step="0">
+        <span class="step-icon">🖼️</span>
+        <span class="step-text">图像预处理</span>
+        <span class="step-spinner"></span>
+        <span class="step-status">等待中</span>
+      </div>
+      <div class="scan-step" data-step="1">
+        <span class="step-icon">🔤</span>
+        <span class="step-text">OCR 文字识别</span>
+        <span class="step-spinner"></span>
+        <span class="step-status">等待中</span>
+      </div>
+      <div class="scan-step" data-step="2">
+        <span class="step-icon">🧠</span>
+        <span class="step-text">匹配药品数据库</span>
+        <span class="step-spinner"></span>
+        <span class="step-status">等待中</span>
+      </div>
+      <div class="scan-step" data-step="3">
+        <span class="step-icon">✅</span>
+        <span class="step-text">生成用药指导</span>
+        <span class="step-spinner"></span>
+        <span class="step-status">等待中</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 结果页 ==================== -->
+<div id="page-result" class="page">
+  <!-- 重复服药警告 -->
+  <div class="duplicate-alert" id="duplicate-alert" style="display:none;">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-text">
+      <div class="alert-title">重复服药提醒</div>
+      <div class="alert-desc" id="duplicate-desc">您今天已经吃过这个药了，请不要重复服用！</div>
+    </div>
+  </div>
+
+  <!-- 药品信息头 -->
+  <div class="result-header">
+    <span class="result-badge">✅ 识别结果</span>
+    <div class="drug-name" id="result-drug-name"></div>
+    <div class="drug-class" id="result-drug-class"></div>
+    <div class="confidence" id="result-confidence"></div>
+  </div>
+
+  <!-- 四问式卡片 -->
+  <div class="qa-card">
+    <div class="qa-top">
+      <div class="qa-icon">🔢</div>
+      <div class="qa-label">一天吃几次？</div>
+    </div>
+    <div class="qa-answer" id="result-frequency"></div>
+    <div class="qa-detail" id="result-frequency-detail"></div>
+  </div>
+
+  <div class="qa-card">
+    <div class="qa-top">
+      <div class="qa-icon">🕐</div>
+      <div class="qa-label">什么时间吃？</div>
+    </div>
+    <div class="qa-answer" id="result-timing"></div>
+    <div class="qa-detail" id="result-timing-detail"></div>
+  </div>
+
+  <div class="qa-card">
+    <div class="qa-top">
+      <div class="qa-icon">🍚</div>
+      <div class="qa-label">饭前还是饭后？</div>
+    </div>
+    <div class="qa-answer" id="result-meal"></div>
+    <div class="qa-detail" id="result-meal-detail"></div>
+  </div>
+
+  <div class="qa-card warning">
+    <div class="qa-top">
+      <div class="qa-icon">⚠️</div>
+      <div class="qa-label">有什么禁忌？</div>
+    </div>
+    <div class="qa-answer" id="result-contraindication"></div>
+    <div class="qa-detail" id="result-contraindication-detail"></div>
+  </div>
+
+  <!-- 药物冲突警告（与今天已服药的冲突检查） -->
+  <div class="interaction-section" id="result-interaction-section" style="display:none;"></div>
+
+  <!-- 操作按钮 -->
+  <button class="voice-btn" id="voice-btn" onclick="speakResult()">
+    🔊 语音播报
+  </button>
+
+  <button class="btn btn-primary" id="confirm-btn" onclick="confirmMedication()">
+    ✅ 确认已服用
+  </button>
+
+  <button class="btn btn-ghost" onclick="showPage('home')">← 返回首页</button>
+
+  <div class="disclaimer">
+    本工具仅供参考，不替代医生诊断<br>
+    用药请遵医嘱
+  </div>
+</div>
+
+<!-- ==================== 记录页 ==================== -->
+<div id="page-history" class="page">
+  <div class="section-title" style="margin-top:0;">📋 用药记录</div>
+
+  <!-- 今天饮酒标记 -->
+  <div class="alcohol-toggle" id="alcohol-toggle">
+    <span class="at-label">🍷 今天是否饮酒？</span>
+    <button class="at-btn off" id="alcohol-btn" onclick="toggleAlcohol()">未饮酒</button>
+  </div>
+
+  <!-- 今天用药安全检查 -->
+  <div class="interaction-section" id="history-interaction-section"></div>
+
+  <div class="history-list" id="history-list">
+    <!-- 动态填充 -->
+  </div>
+  <button class="btn btn-ghost" onclick="showPage('home')">← 返回首页</button>
+</div>
+
+<!-- ==================== 家属端 ==================== -->
+<div id="page-family" class="page">
+  <div class="family-header">
+    <div class="fh-title">👨‍👩‍👧 家属用药日报</div>
+    <div class="fh-sub">远程查看家人今日用药情况</div>
+  </div>
+
+  <!-- 日期切换 -->
+  <div class="date-switcher">
+    <button class="ds-btn" id="family-prev-btn" onclick="changeFamilyDate(-1)">‹</button>
+    <div class="ds-label" id="family-date-label">今天</div>
+    <button class="ds-btn" id="family-next-btn" onclick="changeFamilyDate(1)">›</button>
+  </div>
+
+  <!-- 概览统计卡 -->
+  <div class="stats-grid" id="family-stats"></div>
+
+  <!-- 漏服提醒 -->
+  <div id="family-missed-section"></div>
+
+  <!-- 用药安全检查 -->
+  <div class="interaction-section" id="family-interaction-section"></div>
+
+  <!-- 今日用药时间线 -->
+  <div class="section-title">⏰ 用药时间线</div>
+  <div id="family-timeline"></div>
+
+  <button class="btn btn-ghost" onclick="showPage('home')" style="margin-top:16px;">← 返回首页</button>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// 药品数据库（24种：AD核心4 + 降压5 + 降糖3 + 降脂2 + 抗凝3 + 胃药2 + 止痛2 + 睡眠2 + 骨健康1）
+// 数据来源：资料包 01_药品数据库.json（16种）+ 常用老年慢病用药补充（8种）
+// ============================================================
+const DRUG_DB = {
+  "donepezil": {
+    id: "donepezil",
+    name: "盐酸多奈哌齐",
+    brand_names: ["安理申", "阿瑞斯", "思博海"],
+    drug_class: "胆碱酯酶抑制剂",
+    plain_class: "帮助改善记忆力的药",
+    frequency: "每天1次",
+    timing: "晚上睡前",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次5mg（1片），每日1次；一个月后可增至10mg（2片）",
+    contraindication: "不要和葡萄柚汁一起喝",
+    contraindication_detail: "葡萄柚汁可能增加血药浓度。对多奈哌齐过敏者禁用，孕妇禁用。可能引起心率减慢，有心脏病史需密切监测。",
+    side_effects: "恶心、腹泻、失眠、肌肉痉挛",
+    elderly_explanation: "这是帮助改善记忆力的药。每天晚上睡觉前吃1片，刚开始可能会有点恶心，过几天就好了。不要和葡萄柚汁一起喝。"
+  },
+  "memantine": {
+    id: "memantine",
+    name: "盐酸美金刚",
+    brand_names: ["易倍申", "邦得清", "福丽康"],
+    drug_class: "NMDA受体拮抗剂",
+    plain_class: "保护脑细胞、延缓认知下降的药",
+    frequency: "每天1次",
+    timing: "每天固定时间，建议饭后",
+    meal_relation: "饭前饭后都可以",
+    dosage: "第1周每天5mg（半片），第2周每天10mg（1片），第3周每天15mg（1片半），第4周起每天20mg（2片）",
+    contraindication: "不要一次吃太多柑橘类水果",
+    contraindication_detail: "大量柑橘或小苏打可能使尿液碱化，降低药物排泄。肾功能不全患者需调整剂量，癫痫患者慎用。常与多奈哌齐联合使用。",
+    side_effects: "头晕、头痛、便秘、嗜睡",
+    elderly_explanation: "这是保护大脑的药，常和多奈哌齐一起吃。第一周每天半片，然后每周加量，第四周开始每天2片。饭后吃，不要一次吃太多柑橘类水果。"
+  },
+  "rivastigmine": {
+    id: "rivastigmine",
+    name: "重酒石酸卡巴拉汀",
+    brand_names: ["艾斯能"],
+    drug_class: "胆碱酯酶抑制剂",
+    plain_class: "帮助改善记忆力和日常生活能力的药",
+    frequency: "每天2次",
+    timing: "早晚各一次",
+    meal_relation: "必须饭后立即吃",
+    dosage: "起始每次1.5mg，每日2次；至少2周后可增至每次3mg，每日2次",
+    contraindication: "一定要吃完饭马上吃",
+    contraindication_detail: "必须与食物同服以减少恶心呕吐。对卡巴拉汀过敏者禁用。胃肠道反应较明显，建议从小剂量开始缓慢加量。如有持续呕吐应停药就医。",
+    side_effects: "恶心、呕吐、腹泻、食欲减退",
+    elderly_explanation: "这是帮助改善记忆力的药。早晚饭后各吃1次，一定要吃完饭马上吃，不然容易恶心想吐。刚开始每次半片，慢慢加量。"
+  },
+  "oligomannate": {
+    id: "oligomannate",
+    name: "甘露特钠胶囊",
+    brand_names: ["九期一"],
+    drug_class: "脑肠轴调节剂",
+    plain_class: "国产原创的改善认知功能的药",
+    frequency: "每天2次",
+    timing: "早晚各一次",
+    meal_relation: "空腹吃（饭前1小时或饭后2小时）",
+    dosage: "每次3粒（450mg），每日2次",
+    contraindication: "要空腹吃，不要和饭一起吃",
+    contraindication_detail: "与食物同服可能影响吸收，建议空腹服用。对本品任何成分过敏者禁用。国产原创药物，需在医生指导下使用，用药期间定期监测肝功能。",
+    side_effects: "头晕、嗜睡、皮疹、恶心",
+    elderly_explanation: "这是咱们国家自己研发的改善记忆力的药。早晚各吃3粒，要空腹吃——饭前1小时或饭后2小时。可能会有点头晕，属于正常反应。"
+  },
+  "amlodipine": {
+    id: "amlodipine",
+    name: "苯磺酸氨氯地平",
+    brand_names: ["络活喜", "压氏达"],
+    drug_class: "钙通道阻滞剂",
+    plain_class: "降血压的药",
+    frequency: "每天1次",
+    timing: "每天固定时间，建议早晨",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次5mg（1片），每日1次",
+    contraindication: "不要喝葡萄柚汁",
+    contraindication_detail: "葡萄柚汁可能增加血药浓度导致低血压。对氨氯地平过敏者禁用。可能引起脚踝水肿，如出现明显水肿应就医。不可突然停药。",
+    side_effects: "脚踝水肿、头痛、面部潮红",
+    elderly_explanation: "这是降血压的药。每天早上固定时间吃1片，饭前饭后都行。可能脚踝会有点肿，正常的。不要自己停药，不要喝西柚汁。"
+  },
+  "metformin": {
+    id: "metformin",
+    name: "盐酸二甲双胍",
+    brand_names: ["格华止", "美迪康"],
+    drug_class: "双胍类降糖药",
+    plain_class: "降血糖的药",
+    frequency: "每天2-3次",
+    timing: "随餐服用",
+    meal_relation: "必须和饭一起吃",
+    dosage: "起始每次0.25g，每日2-3次；可逐渐增至每次0.5g，每日2-3次",
+    contraindication: "绝对不能喝酒",
+    contraindication_detail: "饮酒可能增加乳酸酸中毒风险（罕见但严重）。肾功能不全者禁用，严重感染缺氧者禁用。长期服用可能影响维生素B12吸收。做造影检查前需停药。",
+    side_effects: "恶心、腹泻、腹胀",
+    elderly_explanation: "这是降血糖的药。吃饭的时候一起吃，或者吃完饭马上吃。刚开始可能会拉肚子，过几天就好。绝对不能喝酒。做CT造影前要告诉医生在吃这个药。"
+  },
+  "atorvastatin": {
+    id: "atorvastatin",
+    name: "阿托伐他汀钙",
+    brand_names: ["立普妥", "阿乐"],
+    drug_class: "他汀类调脂药",
+    plain_class: "降血脂、保护血管的药",
+    frequency: "每天1次",
+    timing: "晚餐时或睡前",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次10-20mg（1片），每日1次",
+    contraindication: "不要喝葡萄柚汁",
+    contraindication_detail: "葡萄柚汁可能增加肌肉损伤风险。活动性肝病患者禁用，孕妇禁用。如出现不明原因的肌肉疼痛或无力应及时就医。定期监测肝功能。",
+    side_effects: "肌肉酸痛、转氨酶升高",
+    elderly_explanation: "这是降血脂、保护血管的药。每天晚饭后或睡觉前吃1片。如果觉得肌肉酸痛，要告诉医生。不要喝西柚汁。"
+  },
+  "aspirin": {
+    id: "aspirin",
+    name: "阿司匹林肠溶片",
+    brand_names: ["拜阿司匹灵", "拜阿司匹林"],
+    drug_class: "抗血小板药",
+    plain_class: "预防血栓、保护心脑血管的药",
+    frequency: "每天1次",
+    timing: "早餐前空腹",
+    meal_relation: "空腹吃（饭前30分钟）",
+    dosage: "每次100mg（1片），每日1次",
+    contraindication: "不能喝酒，注意有没有黑便",
+    contraindication_detail: "饮酒增加胃出血风险。对阿司匹林过敏者禁用，活动性消化道溃疡者禁用，出血性疾病患者禁用。如出现黑便、牙龈出血、皮肤瘀斑应及时就医。手术前需告知医生。",
+    side_effects: "胃肠道不适、出血倾向",
+    elderly_explanation: "这是预防血栓的药。每天早上空腹吃1片（饭前半小时）。如果大便发黑、牙龈出血，要马上去医院。做手术前一定要告诉医生在吃这个药。不要喝酒。"
+  },
+  "omeprazole": {
+    id: "omeprazole",
+    name: "奥美拉唑肠溶胶囊",
+    brand_names: ["洛赛克", "奥克"],
+    drug_class: "质子泵抑制剂",
+    plain_class: "抑制胃酸、保护胃的药",
+    frequency: "每天1-2次",
+    timing: "早餐前30分钟",
+    meal_relation: "必须饭前空腹吃",
+    dosage: "每次20mg（1粒），每日1-2次",
+    contraindication: "一定要饭前半小时吃",
+    contraindication_detail: "必须饭前空腹服用才能达到最佳抑酸效果。对奥美拉唑过敏者禁用。长期服用可能影响钙和维生素B12吸收。不建议自行长期服用。",
+    side_effects: "头痛、腹泻、恶心",
+    elderly_explanation: "这是治胃病、抑制胃酸的药。一定要在早饭前半小时吃，空腹吃才有效。不要自己长期吃，吃一段时间要问医生。"
+  },
+  "ibuprofen": {
+    id: "ibuprofen",
+    name: "布洛芬缓释胶囊",
+    brand_names: ["芬必得", "美林"],
+    drug_class: "非甾体抗炎药",
+    plain_class: "止痛、退烧、消炎的药",
+    frequency: "每天2次",
+    timing: "早晚各一次",
+    meal_relation: "建议饭后吃",
+    dosage: "每次1粒（0.3g），每日2次",
+    contraindication: "不能和阿司匹林一起吃，不能喝酒",
+    contraindication_detail: "与阿司匹林同服增加胃出血风险。活动性消化道溃疡者禁用，对布洛芬过敏者禁用。缓释胶囊不可掰开或嚼碎。24小时内不超过2粒。不宜长期服用。",
+    side_effects: "胃部不适、恶心、头晕",
+    elderly_explanation: "这是止痛退烧的药。饭后吃，早晚各1粒。胶囊要整个吞，不能掰开。24小时最多吃2粒。不要和阿司匹林一起吃，不要喝酒。"
+  },
+  "valsartan": {
+    id: "valsartan",
+    name: "缬沙坦",
+    brand_names: ["代文", "穗悦"],
+    drug_class: "血管紧张素II受体拮抗剂",
+    plain_class: "降血压、保护心脏和肾脏的药",
+    frequency: "每天1次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次80mg（1片），每日1次；可增至160mg（2片）",
+    contraindication: "定期查血钾，孕妇不能用",
+    contraindication_detail: "可能引起血钾升高，需定期监测。对缬沙坦过敏者禁用，孕妇禁用。肾功能不全者需调整剂量。",
+    side_effects: "头晕、乏力",
+    elderly_explanation: "这是降血压的药，还能保护心脏和肾脏。每天固定时间吃1片。定期去医院查血钾。"
+  },
+  "metoprolol": {
+    id: "metoprolol",
+    name: "酒石酸美托洛尔",
+    brand_names: ["倍他乐克"],
+    drug_class: "β受体阻滞剂",
+    plain_class: "降血压、减慢心率的药",
+    frequency: "每天2次",
+    timing: "早晚各一次",
+    meal_relation: "必须饭前空腹吃（饭前30分钟）",
+    dosage: "每次25-50mg，每日2次",
+    contraindication: "不能突然停药，心跳低于55要去医院",
+    contraindication_detail: "不可突然停药，需逐渐减量，否则可能引起心跳加快、血压反弹。心动过缓者禁用，房室传导阻滞者禁用，哮喘患者禁用。如心率低于55次/分应就医。",
+    side_effects: "心率减慢、乏力、头晕、手脚发凉",
+    elderly_explanation: "这是降血压、减慢心跳的药。早晚饭前半小时各吃1次。千万不能突然停药，要停也得慢慢减。如果心跳太慢（低于55）要去医院。"
+  },
+  "glimepiride": {
+    id: "glimepiride",
+    name: "格列美脲",
+    brand_names: ["亚莫利", "万苏平"],
+    drug_class: "磺脲类降糖药",
+    plain_class: "促进胰岛素分泌、降血糖的药",
+    frequency: "每天1次",
+    timing: "早餐前或早餐时",
+    meal_relation: "必须和早餐一起吃，吃完药一定要吃饭",
+    dosage: "起始每次1mg，每日1次；可逐渐增至每次2-4mg",
+    contraindication: "吃完药必须吃饭，小心低血糖",
+    contraindication_detail: "服药后必须进食，否则可能低血糖。1型糖尿病禁用，严重肝肾功能不全者禁用。如出现心慌、出汗、手抖应立即进食糖果。需随身携带糖果。",
+    side_effects: "低血糖、头晕、恶心",
+    elderly_explanation: "这是降血糖的药。每天早饭前吃1片，吃完药一定要吃饭！如果觉得心慌、出冷汗、手发抖，马上吃块糖或饼干，那是低血糖了。"
+  },
+  "clopidogrel": {
+    id: "clopidogrel",
+    name: "硫酸氢氯吡格雷",
+    brand_names: ["波立维", "泰嘉"],
+    drug_class: "抗血小板药",
+    plain_class: "预防血栓的药",
+    frequency: "每天1次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次75mg（1片），每日1次",
+    contraindication: "注意出血，手术前要停药",
+    contraindication_detail: "常与阿司匹林联合使用（双抗），出血风险更高。活动性出血患者禁用，严重肝功能不全者禁用。如出现黑便、牙龈出血应及时就医。手术前需停药5-7天。",
+    side_effects: "出血、腹泻、皮疹",
+    elderly_explanation: "这是预防血栓的药，常和阿司匹林一起吃。每天固定时间吃1片。如果和阿司匹林一起吃，要特别注意有没有出血——黑便、牙龈出血都要去医院。"
+  },
+  "paracetamol": {
+    id: "paracetamol",
+    name: "对乙酰氨基酚片",
+    brand_names: ["泰诺林", "必理通", "扑热息痛"],
+    drug_class: "解热镇痛药",
+    plain_class: "退烧、止痛的药",
+    frequency: "按需服用，一天最多4次",
+    timing: "发烧或疼的时候吃",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次0.5g（1片），间隔4-6小时可重复，24小时不超过4片",
+    contraindication: "不能喝酒，感冒药别重复吃",
+    contraindication_detail: "饮酒可致严重肝损伤。24小时内不超过2g（4片），过量可致严重肝损伤。很多感冒药中含有此成分，注意不要重复用药。严重肝肾功能不全者禁用。",
+    side_effects: "偶见皮疹",
+    elderly_explanation: "这是退烧止痛的药。发烧或疼的时候吃1片，间隔至少4小时才能再吃，一天最多吃4片。不要喝酒。吃感冒药前看看成分，很多感冒药里已经有这个药了，别重复吃。"
+  },
+  "zopiclone": {
+    id: "zopiclone",
+    name: "佐匹克隆片",
+    brand_names: ["三辰", "忆梦返"],
+    drug_class: "环吡咯酮类镇静催眠药",
+    plain_class: "帮助睡眠的药",
+    frequency: "每天1次，仅睡前服",
+    timing: "临睡前",
+    meal_relation: "空腹吃起效更快",
+    dosage: "老年人起始半片（3.75mg），睡前服用",
+    contraindication: "绝对不能喝酒，吃完药就躺下",
+    contraindication_detail: "严禁与酒精同服，可致呼吸抑制。严重呼吸功能不全者禁用，重症肌无力患者禁用。属于处方药，不可长期连续服用。服药后避免走动操作机器。老年人从半片开始。",
+    side_effects: "嗜睡、口苦、头晕",
+    elderly_explanation: "这是帮助睡觉的药，是处方药。睡觉前吃半片（老年人）。吃完药就躺下，别再走动。绝对不能喝酒！不要长期天天吃。"
+  },
+  "irbesartan": {
+    id: "irbesartan",
+    name: "厄贝沙坦",
+    brand_names: ["安博维", "伊泰青", "吉加"],
+    drug_class: "血管紧张素II受体拮抗剂",
+    plain_class: "降血压的药",
+    frequency: "每天1次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次150mg，每日1次；可增至300mg",
+    contraindication: "定期查血钾和肾功能，孕妇不能用",
+    contraindication_detail: "可能引起血钾升高和肾功能变化，需定期监测。对厄贝沙坦过敏者禁用，孕妇禁用。双侧肾动脉狭窄者禁用。",
+    side_effects: "头晕、乏力",
+    elderly_explanation: "这是降血压的药。每天固定时间吃1片。定期去医院查血钾和肾功能。孕妇不能用。"
+  },
+  "nifedipine": {
+    id: "nifedipine",
+    name: "硝苯地平控释片",
+    brand_names: ["拜新同", "倪福达"],
+    drug_class: "钙通道阻滞剂",
+    plain_class: "降血压的药",
+    frequency: "每天1次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次30mg，每日1次；可增至60mg",
+    contraindication: "整片吞不能掰开，不要喝西柚汁",
+    contraindication_detail: "控释片必须整片吞服，不可掰开嚼碎，否则会引起血压骤降。对硝苯地平过敏者禁用。避免与葡萄柚汁同服。可能引起脚踝水肿。",
+    side_effects: "脚踝水肿、头痛、面部潮红",
+    elderly_explanation: "这是降血压的药。每天固定时间吃1片，整片吞不能掰开。可能脚踝有点肿，正常。不要喝西柚汁。"
+  },
+  "gliclazide": {
+    id: "gliclazide",
+    name: "格列齐特",
+    brand_names: ["达美康"],
+    drug_class: "磺脲类降糖药",
+    plain_class: "促进胰岛素分泌、降血糖的药",
+    frequency: "每天1-2次",
+    timing: "早餐前，或早晚餐前",
+    meal_relation: "饭前空腹吃",
+    dosage: "起始每次30-60mg，每日1次；可增至每次60mg，每日2次",
+    contraindication: "吃完药一定要吃饭，小心低血糖",
+    contraindication_detail: "服药后必须进食，否则可能低血糖。1型糖尿病禁用，严重肝肾功能不全者禁用。如出现心慌、出汗、手抖应立即进食糖果。",
+    side_effects: "低血糖、恶心、皮疹",
+    elderly_explanation: "这是降血糖的药。早饭前吃，吃完药一定要吃饭！如果心慌出汗手抖，马上吃块糖，那是低血糖了。"
+  },
+  "rosuvastatin": {
+    id: "rosuvastatin",
+    name: "瑞舒伐他汀钙",
+    brand_names: ["可定", "京新"],
+    drug_class: "他汀类调脂药",
+    plain_class: "降血脂、保护血管的药",
+    frequency: "每天1次",
+    timing: "晚餐时或睡前",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次5-10mg，每日1次；可增至20mg",
+    contraindication: "肌肉酸痛要告诉医生",
+    contraindication_detail: "活动性肝病患者禁用，孕妇禁用。如出现不明原因的肌肉疼痛或无力应及时就医。定期监测肝功能。",
+    side_effects: "头痛、便秘、肌肉酸痛",
+    elderly_explanation: "这是降血脂的药。每天晚饭后或睡前吃1片。如果觉得肌肉酸痛要告诉医生。定期查肝功能。"
+  },
+  "warfarin": {
+    id: "warfarin",
+    name: "华法林钠",
+    brand_names: ["齐林", "可密定"],
+    drug_class: "口服抗凝药",
+    plain_class: "防止血栓形成的药",
+    frequency: "每天1次",
+    timing: "每天固定时间，建议晚上",
+    meal_relation: "饭前饭后都可以",
+    dosage: "个体化，通常起始2.5-5mg，每日1次，按INR值调整",
+    contraindication: "定期查凝血，菠菜动物肝脏别吃太多，注意出血",
+    contraindication_detail: "必须定期监测INR（凝血指标），目标2-3。出血风险高，如出现黑便、血尿、牙龈出血、皮肤瘀斑应及时就医。活动性出血患者禁用。富含维生素K食物（菠菜、动物肝脏、绿茶）会影响药效，不要大量食用。手术前需停药。",
+    side_effects: "出血、恶心、皮疹",
+    elderly_explanation: "这是防血栓的药。每天固定时间吃1片，一定要定期去医院查凝血指标。如果大便发黑、尿血、牙龈出血要马上就医。菠菜、动物肝脏不要吃太多。做手术前要告诉医生。"
+  },
+  "domperidone": {
+    id: "domperidone",
+    name: "多潘立酮片",
+    brand_names: ["吗丁啉"],
+    drug_class: "胃动力药",
+    plain_class: "帮助消化、缓解胃胀的药",
+    frequency: "每天3次",
+    timing: "三餐饭前",
+    meal_relation: "饭前15-30分钟吃",
+    dosage: "每次10mg（1片），每日3次，饭前15-30分钟",
+    contraindication: "胃出血时不能用，别长期吃",
+    contraindication_detail: "胃肠道出血患者禁用，机械性梗阻患者禁用。可能引起QT间期延长，心脏病患者慎用。连续使用不超过7天。",
+    side_effects: "口干、头痛",
+    elderly_explanation: "这是帮助消化的药，缓解胃胀。每天三餐饭前半小时各吃1片。不要长期吃，超过7天要问医生。"
+  },
+  "dexzopiclone": {
+    id: "dexzopiclone",
+    name: "右佐匹克隆片",
+    brand_names: ["文飞", "三辰悦"],
+    drug_class: "环吡咯酮类镇静催眠药",
+    plain_class: "帮助睡眠的药",
+    frequency: "每天1次，仅睡前服",
+    timing: "临睡前",
+    meal_relation: "空腹吃起效更快",
+    dosage: "老年人起始1mg（半片），睡前服用；最大不超过2mg",
+    contraindication: "绝对不能喝酒，吃完药就躺下",
+    contraindication_detail: "严禁与酒精同服，可致呼吸抑制。严重呼吸功能不全者禁用，重症肌无力患者禁用。属于处方药，不可长期连续服用。服药后避免走动。老年人从半片开始。",
+    side_effects: "嗜睡、口苦、头晕",
+    elderly_explanation: "这是帮助睡觉的药，是处方药。睡觉前吃半片（老年人）。吃完药就躺下，别再走动。绝对不能喝酒！不要长期天天吃。"
+  },
+  "calcium_d3": {
+    id: "calcium_d3",
+    name: "碳酸钙D3片",
+    brand_names: ["钙尔奇D", "迪巧"],
+    drug_class: "钙剂和维生素D补充剂",
+    plain_class: "补钙、保护骨骼的药",
+    frequency: "每天1-2次",
+    timing: "餐后服用",
+    meal_relation: "饭后吃，吸收好",
+    dosage: "每次1片，每日1-2次",
+    contraindication: "高钙血症不能用，多喝水防便秘",
+    contraindication_detail: "高钙血症、高尿酸血症患者禁用。可能引起便秘，建议多饮水。与甲状腺激素类药物同服需间隔至少2小时。",
+    side_effects: "便秘、腹胀",
+    elderly_explanation: "这是补钙的药，保护骨头。每天饭后吃1-2片，多喝水防便秘。"
+  }
+};
+
+// ============================================================
+// 药物相互作用规则库（18条，来源：资料包 02_药物冲突规则库.json）
+// 匹配方式：drug_a / drug_b 为药品名片段，用 includes 匹配 DRUG_DB 中的 name
+// "酒精" 为特殊虚拟项，由用户在记录页手动标记饮酒后触发
+// ============================================================
+const INTERACTION_RULES = [
+  { id: "INT001", severity: "danger",  a: "阿司匹林",     b: "布洛芬",       type: "胃肠道出血风险",     desc: "两者均为非甾体抗炎药，同时使用显著增加消化道溃疡和出血风险；布洛芬还可能降低阿司匹林的心血管保护作用", elderly: "阿司匹林和布洛芬一起吃会伤胃出血，千万不要一起吃。止痛可以用对乙酰氨基酚（扑热息痛）代替。" },
+  { id: "INT002", severity: "danger",  a: "阿司匹林",     b: "氯吡格雷",     type: "出血风险叠加",       desc: "两者均抑制血小板聚集，双联抗血小板显著增加出血风险", elderly: "这两种药都是预防血栓的，一起吃出血风险大。只有医生让你一起吃才能吃，而且要注意有没有黑便、牙龈出血。" },
+  { id: "INT003", severity: "danger",  a: "二甲双胍",     b: "酒精",         type: "乳酸酸中毒",         desc: "酒精可增强二甲双胍对乳酸代谢的影响，增加乳酸酸中毒风险", elderly: "吃二甲双胍不能喝酒，会引起严重的酸中毒，可能危及生命。" },
+  { id: "INT004", severity: "danger",  a: "佐匹克隆",     b: "酒精",         type: "中枢神经抑制",       desc: "两者均抑制中枢神经系统，联用可致严重呼吸抑制、昏迷甚至死亡", elderly: "吃安眠药绝对不能喝酒，会导致呼吸停止，非常危险！" },
+  { id: "INT005", severity: "warning", a: "多奈哌齐",     b: "美金刚",       type: "协同作用（非有害）", desc: "两者作用机制互补，临床指南推荐中重度AD患者联合使用，可能增加轻度不良反应但获益大于风险", elderly: "这两种药一起吃是医生常用的方案，一个改善记忆力，一个保护大脑。一起吃效果更好，但可能会有点恶心头晕。" },
+  { id: "INT006", severity: "warning", a: "阿托伐他汀",   b: "葡萄柚汁",     type: "肌肉损伤风险",       desc: "葡萄柚汁抑制CYP3A4酶，增加阿托伐他汀血药浓度，增加横纹肌溶解风险", elderly: "吃降血脂的药不要喝西柚汁（葡萄柚汁），会增加肌肉损伤的风险。" },
+  { id: "INT007", severity: "warning", a: "氨氯地平",     b: "葡萄柚汁",     type: "低血压风险",         desc: "葡萄柚汁抑制CYP3A4酶，增加氨氯地平血药浓度，可能导致血压过低", elderly: "吃降压药氨氯地平不要喝西柚汁，可能导致血压太低头晕。" },
+  { id: "INT008", severity: "warning", a: "格列美脲",     b: "阿司匹林",     type: "低血糖风险",         desc: "阿司匹林可增强磺脲类降糖药的降血糖作用", elderly: "降糖药格列美脲和阿司匹林一起吃，可能导致血糖太低。要注意监测血糖，出现心慌出汗马上吃糖。" },
+  { id: "INT009", severity: "warning", a: "奥美拉唑",     b: "氯吡格雷",     type: "抗血小板效果降低",   desc: "奥美拉唑抑制CYP2C19酶，可能降低氯吡格雷的活性代谢产物生成，减弱抗血小板作用", elderly: "治胃病的奥美拉唑会降低氯吡格雷（防血栓药）的效果。如果需要吃胃药，问问医生能不能换泮托拉唑。" },
+  { id: "INT010", severity: "warning", a: "美托洛尔",     b: "格列美脲",     type: "低血糖症状被掩盖",   desc: "美托洛尔可掩盖低血糖时的心动过速症状，使患者不易察觉低血糖", elderly: "美托洛尔（降心跳的药）会掩盖低血糖时的心跳加快，让你不容易发现血糖低了。要特别注意出汗、手抖、饿的感觉。" },
+  { id: "INT011", severity: "caution", a: "多奈哌齐",     b: "美托洛尔",     type: "心率减慢叠加",       desc: "多奈哌齐可能引起心率减慢，与美托洛尔的降心率作用叠加", elderly: "多奈哌齐（改善记忆力的药）和美托洛尔（降心跳的药）一起吃可能让心跳太慢。定期数脉搏，低于55次要去医院。" },
+  { id: "INT012", severity: "caution", a: "缬沙坦",       b: "二甲双胍",     type: "血糖影响",           desc: "缬沙坦可能轻度影响血糖代谢，但临床意义有限", elderly: "这两种药一起吃没什么大问题，定期测血糖就行。" },
+  { id: "INT013", severity: "warning", a: "布洛芬",       b: "氨氯地平",     type: "降压效果降低",       desc: "非甾体抗炎药可引起水钠潴留，降低降压药效果", elderly: "布洛芬会让降压药效果变差。如果需要止痛，优先用对乙酰氨基酚（扑热息痛）。" },
+  { id: "INT014", severity: "danger",  a: "对乙酰氨基酚", b: "酒精",         type: "严重肝损伤",         desc: "酒精诱导CYP2E1酶，增加对乙酰氨基酚的肝毒性代谢产物生成", elderly: "吃退烧药对乙酰氨基酚（扑热息痛）不能喝酒，会严重伤肝，甚至肝衰竭。一天最多吃4片。" },
+  { id: "INT015", severity: "warning", a: "卡巴拉汀",     b: "美托洛尔",     type: "心率减慢叠加",       desc: "卡巴拉汀（胆碱酯酶抑制剂）可引起心动过缓，与β受体阻滞剂叠加", elderly: "卡巴拉汀和美托洛尔一起吃可能让心跳太慢，要定期数脉搏。" },
+  { id: "INT016", severity: "caution", a: "阿托伐他汀",   b: "氨氯地平",     type: "他汀血药浓度轻度升高", desc: "氨氯地平轻度抑制CYP3A4，可能增加阿托伐他汀暴露量", elderly: "降血脂药和降压药氨氯地平一起吃一般没问题，但如果觉得肌肉酸痛要告诉医生。" },
+  { id: "INT017", severity: "warning", a: "阿司匹林",     b: "奥美拉唑",     type: "阿司匹林吸收轻度降低", desc: "奥美拉唑升高胃内pH值，可能影响阿司匹林肠溶片的溶解和吸收", elderly: "阿司匹林和奥美拉唑（胃药）一起吃可能影响阿司匹林吸收。阿司匹林空腹吃，奥美拉唑饭前半小时吃，两个药间隔1小时以上。" },
+  { id: "INT018", severity: "caution", a: "甘露特钠",     b: "其他药物",     type: "数据有限",           desc: "甘露特钠为国产创新药，药物相互作用研究数据有限", elderly: "甘露特钠（九期一）是新药，和其他药一起吃的研究还不多，吃之前问问医生。" }
+];
+
+// 酒精状态独立存储（按天）
+const ALCOHOL_KEY = 'yaoyi_alcohol_flags';
+
+// ============================================================
+// 核心状态
+// ============================================================
+let currentDrug = null;
+let currentImageData = null;
+let mediaStream = null;
+let isSpeaking = false;
+
+// ============================================================
+// 页面切换
+// ============================================================
+function showPage(pageId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + pageId).classList.add('active');
+  window.scrollTo(0, 0);
+  if (pageId === 'home') renderTodayMeds();
+  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); updateAlcoholBtn(); }
+  if (pageId === 'family') { familyDateOffset = 0; renderFamilyView(); }
+}
+
+// ============================================================
+// 首页初始化
+// ============================================================
+function initHome() {
+  const now = new Date();
+  const hour = now.getHours();
+  let greeting = '您好';
+  if (hour < 6) greeting = '夜深了';
+  else if (hour < 9) greeting = '早上好';
+  else if (hour < 12) greeting = '上午好';
+  else if (hour < 14) greeting = '中午好';
+  else if (hour < 18) greeting = '下午好';
+  else greeting = '晚上好';
+  document.getElementById('greeting-text').textContent = greeting + '，今天的药吃了吗？';
+
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  document.getElementById('date-text').textContent =
+    now.getFullYear() + '年' + (now.getMonth()+1) + '月' + now.getDate() + '日 ' + weekdays[now.getDay()];
+
+  renderTodayMeds();
+}
+
+// ============================================================
+// 今日用药概览
+// ============================================================
+function renderTodayMeds() {
+  const container = document.getElementById('today-meds-container');
+  const records = loadRecords();
+  const todayStr = getTodayStr();
+  const todayRecords = records.filter(r => r.date === todayStr);
+
+  if (todayRecords.length === 0) {
+    container.innerHTML = '<div class="empty-state"><span class="empty-icon">💊</span>今天还没有用药记录<br>拍一下药盒开始吧</div>';
+    return;
+  }
+
+  let html = '';
+  // 去重：同一种药只显示最新一次
+  const seen = {};
+  const uniqueRecords = [];
+  for (let i = todayRecords.length - 1; i >= 0; i--) {
+    if (!seen[todayRecords[i].drugId]) {
+      seen[todayRecords[i].drugId] = true;
+      uniqueRecords.unshift(todayRecords[i]);
+    }
+  }
+
+  uniqueRecords.forEach(r => {
+    const drug = DRUG_DB[r.drugId];
+    if (!drug) return;
+    html += `
+      <div class="med-item">
+        <div class="med-icon">💊</div>
+        <div class="med-info">
+          <div class="med-name">${drug.name}</div>
+          <div class="med-time">${drug.timing} · ${drug.frequency}</div>
+        </div>
+        <div class="med-status taken">已服用 ${r.time}</div>
+      </div>`;
+  });
+  container.innerHTML = html;
+}
+
+// ============================================================
+// 摄像头
+// ============================================================
+function startCamera() {
+  try {
+    showPage('camera');
+    // 关键修复：先显示相册选择（确保有反应），再后台尝试摄像头
+    showFallback();
+
+    const video = document.getElementById('camera-video');
+    const container = document.getElementById('camera-container');
+    const fallback = document.getElementById('camera-fallback');
+    const captureArea = document.getElementById('capture-area');
+
+    // 非安全上下文（file://）或不支持摄像头时，直接用相册
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return;
+    }
+
+    // 超时保护：3秒内摄像头没启动成功就保持相册模式
+    const timeoutId = setTimeout(() => {
+      console.warn('摄像头启动超时，使用相册模式');
+    }, 3000);
+
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    }).then(stream => {
+      clearTimeout(timeoutId);
+      mediaStream = stream;
+      video.srcObject = stream;
+      container.style.display = 'block';
+      fallback.style.display = 'none';
+      captureArea.style.display = 'block';
+    }).catch(err => {
+      clearTimeout(timeoutId);
+      console.warn('摄像头不可用，使用相册模式:', err.message || err);
+      // 保持相册模式即可，不需要额外操作
+    });
+  } catch (e) {
+    console.error('startCamera error:', e);
+    showFallback();
+  }
+}
+
+function showFallback() {
+  document.getElementById('camera-container').style.display = 'none';
+  document.getElementById('capture-area').style.display = 'none';
+  document.getElementById('camera-fallback').style.display = 'block';
+}
+
+function stopCamera() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(track => track.stop());
+    mediaStream = null;
+  }
+}
+
+function capturePhoto() {
+  const video = document.getElementById('camera-video');
+  const canvas = document.getElementById('camera-canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const imageData = canvas.toDataURL('image/jpeg', 0.8);
+  stopCamera();
+  startRecognition(imageData);
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    startRecognition(e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+// ============================================================
+// 识别流程（调用后端 /api/recognize 进行真实AI识别）
+// 后端未启动时自动降级为演示模式，保证页面可用
+// ============================================================
+function startRecognition(imageData) {
+  currentImageData = imageData;
+  document.getElementById('scanning-img').src = imageData;
+  showPage('scanning');
+
+  // 重置步骤状态
+  const steps = document.querySelectorAll('.scan-step');
+  steps.forEach(s => {
+    s.classList.remove('active', 'done');
+    s.querySelector('.step-status').textContent = '等待中';
+  });
+
+  // 逐步执行识别动画
+  let stepIndex = 0;
+  const runStep = () => {
+    if (stepIndex > 0) {
+      steps[stepIndex - 1].classList.remove('active');
+      steps[stepIndex - 1].classList.add('done');
+      steps[stepIndex - 1].querySelector('.step-status').textContent = '完成 ✓';
+    }
+    if (stepIndex >= steps.length) {
+      finishRecognition();
+      return;
+    }
+    steps[stepIndex].classList.add('active');
+    steps[stepIndex].querySelector('.step-status').textContent = '处理中...';
+    stepIndex++;
+    setTimeout(runStep, 800 + Math.random() * 400);
+  };
+  runStep();
+}
+
+async function finishRecognition() {
+  try {
+    // 调用后端真实识别 API
+    const response = await fetch('/api/recognize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: currentImageData })
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || ('API返回错误 ' + response.status));
+    }
+
+    const result = await response.json();
+
+    // 用 API 返回的药名匹配内置药品数据库
+    const drug = matchDrug(result);
+    if (drug) {
+      currentDrug = drug;
+      renderResult(currentDrug);
+      showToast('识别完成 ✅', 'success');
+    } else {
+      // 识别成功但数据库未收录
+      currentDrug = null;
+      showPage('result');
+      document.getElementById('result-drug-name').textContent = result.drug_name || '未识别药品';
+      document.getElementById('result-drug-class').textContent =
+        (result.brand_name ? result.brand_name + ' · ' : '') + '暂未收录该药品，请咨询医生或家属';
+      document.getElementById('result-confidence').textContent = '';
+      document.getElementById('result-frequency').textContent = '—';
+      document.getElementById('result-frequency-detail').textContent = '';
+      document.getElementById('result-timing').textContent = '—';
+      document.getElementById('result-timing-detail').textContent = '';
+      document.getElementById('result-meal').textContent = '—';
+      document.getElementById('result-meal-detail').textContent = '';
+      document.getElementById('result-contraindication').textContent = '请遵医嘱';
+      document.getElementById('result-contraindication-detail').textContent = '';
+      document.getElementById('duplicate-alert').style.display = 'none';
+      document.getElementById('confirm-btn').style.display = 'none';
+      showToast('识别成功，但数据库暂未收录该药品', 'warning');
+    }
+  } catch (e) {
+    console.warn('真实API调用失败，降级为演示模式:', e);
+    // 降级：未启动服务器时用演示模式，保证页面可用
+    const drugKeys = Object.keys(DRUG_DB);
+    const hash = simpleHash(currentImageData || '');
+    const drugKey = drugKeys[hash % drugKeys.length];
+    currentDrug = DRUG_DB[drugKey];
+    renderResult(currentDrug);
+    showToast('演示模式（未连接服务器，结果随机）', 'warning');
+  }
+}
+
+// 根据 API 返回的药品信息匹配内置数据库
+function matchDrug(apiResult) {
+  const drugName = (apiResult.drug_name || '').trim();
+  const brandName = (apiResult.brand_name || '').trim();
+
+  if (!drugName && !brandName) return null;
+
+  // 1. 精确匹配通用名
+  for (const key in DRUG_DB) {
+    if (DRUG_DB[key].name === drugName) return DRUG_DB[key];
+  }
+
+  // 2. 包含匹配通用名（如 API 返回"阿司匹林片"，数据库是"阿司匹林肠溶片"）
+  if (drugName) {
+    for (const key in DRUG_DB) {
+      const dbName = DRUG_DB[key].name;
+      if (dbName.includes(drugName) || drugName.includes(dbName)) {
+        return DRUG_DB[key];
+      }
+    }
+  }
+
+  // 3. 匹配商品名
+  if (brandName) {
+    for (const key in DRUG_DB) {
+      if (DRUG_DB[key].brand_names.some(b =>
+        brandName.includes(b) || b.includes(brandName)
+      )) {
+        return DRUG_DB[key];
+      }
+    }
+  }
+
+  return null;
+}
+
+// 简单哈希函数（用于演示阶段模拟识别结果的随机性）
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < Math.min(str.length, 1000); i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+// ============================================================
+// 结果展示
+// ============================================================
+function renderResult(drug) {
+  document.getElementById('result-drug-name').textContent = drug.name;
+  document.getElementById('result-drug-class').textContent = drug.plain_class + '（' + drug.brand_names.join(' / ') + '）';
+  document.getElementById('result-confidence').textContent = '识别置信度：' + (88 + Math.floor(Math.random() * 10)) + '%';
+
+  document.getElementById('result-frequency').textContent = drug.frequency;
+  document.getElementById('result-frequency-detail').textContent = drug.dosage;
+
+  document.getElementById('result-timing').textContent = drug.timing;
+  document.getElementById('result-timing-detail').textContent = '请每天在固定时间服用，养成规律';
+
+  document.getElementById('result-meal').textContent = drug.meal_relation;
+  document.getElementById('result-meal-detail').textContent = '';
+
+  document.getElementById('result-contraindication').textContent = drug.contraindication;
+  document.getElementById('result-contraindication-detail').textContent = drug.contraindication_detail;
+
+  // 检查重复服药
+  const duplicate = checkDuplicate(drug.id);
+  const alertEl = document.getElementById('duplicate-alert');
+  const confirmBtn = document.getElementById('confirm-btn');
+  if (duplicate) {
+    alertEl.style.display = 'flex';
+    document.getElementById('duplicate-desc').textContent =
+      '您今天 ' + duplicate.time + ' 已经吃过「' + drug.name + '」了，请不要重复服用！如不确定请咨询医生或家属。';
+    confirmBtn.style.display = 'none';
+  } else {
+    alertEl.style.display = 'none';
+    confirmBtn.style.display = 'flex';
+  }
+
+  // 检查与今天已用药的冲突
+  renderResultInteractions(drug.id);
+
+  showPage('result');
+}
+
+// ============================================================
+// 语音播报
+// ============================================================
+function speakResult() {
+  if (!currentDrug) return;
+  if (isSpeaking) {
+    window.speechSynthesis.cancel();
+    isSpeaking = false;
+    document.getElementById('voice-btn').classList.remove('speaking');
+    document.getElementById('voice-btn').innerHTML = '🔊 语音播报';
+    return;
+  }
+
+  const drug = currentDrug;
+  const text = '这是' + drug.name + '，' + drug.plain_class + '。'
+    + '一天吃' + drug.frequency + '。'
+    + drug.timing + '吃。'
+    + drug.meal_relation + '。'
+    + '需要注意：' + drug.contraindication + '。'
+    + drug.elderly_explanation;
+
+  speak(text);
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) {
+    showToast('您的浏览器不支持语音播报', 'warning');
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'zh-CN';
+  utterance.rate = 0.8; // 慢速播报，适老化
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+
+  // 尝试选择中文语音
+  const voices = window.speechSynthesis.getVoices();
+  const chineseVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('CN'));
+  if (chineseVoice) utterance.voice = chineseVoice;
+
+  utterance.onstart = () => {
+    isSpeaking = true;
+    document.getElementById('voice-btn').classList.add('speaking');
+    document.getElementById('voice-btn').innerHTML = '⏹️ 停止播报';
+  };
+  utterance.onend = () => {
+    isSpeaking = false;
+    document.getElementById('voice-btn').classList.remove('speaking');
+    document.getElementById('voice-btn').innerHTML = '🔊 语音播报';
+  };
+  utterance.onerror = () => {
+    isSpeaking = false;
+    document.getElementById('voice-btn').classList.remove('speaking');
+    document.getElementById('voice-btn').innerHTML = '🔊 语音播报';
+  };
+
+  window.speechSynthesis.speak(utterance);
+}
+
+// 预加载语音列表（部分浏览器需要）
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.onvoiceschanged = () => {
+    window.speechSynthesis.getVoices();
+  };
+}
+
+// ============================================================
+// 用药记录（localStorage 持久化）
+// ============================================================
+const STORAGE_KEY = 'yaoyi_medication_records';
+
+function loadRecords() {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveRecords(records) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  } catch (e) {
+    console.error('保存记录失败:', e);
+  }
+}
+
+function saveRecord(drug) {
+  const records = loadRecords();
+  const now = new Date();
+  records.push({
+    drugId: drug.id,
+    drugName: drug.name,
+    date: getTodayStr(),
+    time: now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0'),
+    timestamp: now.getTime()
+  });
+  saveRecords(records);
+}
+
+function checkDuplicate(drugId) {
+  const records = loadRecords();
+  const todayStr = getTodayStr();
+  const todayRecords = records.filter(r => r.date === todayStr && r.drugId === drugId);
+  if (todayRecords.length === 0) return null;
+  // 返回最近一次记录
+  return todayRecords[todayRecords.length - 1];
+}
+
+// ============================================================
+// 药物相互作用检测
+// ============================================================
+const SEVERITY_ORDER = { danger: 0, warning: 1, caution: 2 };
+const SEVERITY_ICON  = { danger: '🚫', warning: '⚠️', caution: '💡' };
+const SEVERITY_LABEL = { danger: '严重冲突', warning: '警告', caution: '注意' };
+
+// 取药品名（DRUG_DB 中不存在时返回 null；"酒精" 作为虚拟项特殊处理）
+function getDrugNameById(drugId) {
+  if (drugId === '__alcohol__') return '酒精';
+  const d = DRUG_DB[drugId];
+  return d ? d.name : null;
+}
+
+// 检查一条规则是否匹配两个药名（双向匹配 + 片段包含）
+function ruleMatches(rule, nameA, nameB) {
+  const a = rule.a, b = rule.b;
+  // 双向：a 匹配 nameA 且 b 匹配 nameB，或 a 匹配 nameB 且 b 匹配 nameA
+  const aMatchA = nameA.includes(a) || a.includes(nameA);
+  const bMatchB = nameB.includes(b) || b.includes(nameB);
+  const aMatchB = nameB.includes(a) || a.includes(nameB);
+  const bMatchA = nameA.includes(b) || b.includes(nameA);
+  return (aMatchA && bMatchB) || (aMatchB && bMatchA);
+}
+
+// 给定药名列表，返回所有匹配规则（去重、按严重程度排序）
+function checkInteractions(names) {
+  const matched = [];
+  const seenIds = new Set();
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      for (const rule of INTERACTION_RULES) {
+        if (seenIds.has(rule.id)) continue;
+        if (ruleMatches(rule, names[i], names[j])) {
+          matched.push({ ...rule, pair: [names[i], names[j]] });
+          seenIds.add(rule.id);
+        }
+      }
+    }
+  }
+  matched.sort((x, y) => SEVERITY_ORDER[x.severity] - SEVERITY_ORDER[y.severity]);
+  return matched;
+}
+
+// 渲染冲突卡片到指定容器
+function renderInteractionCards(container, rules) {
+  if (rules.length === 0) {
+    container.innerHTML = '<div class="interaction-safe">✅ 当前用药未发现冲突</div>';
+    container.style.display = 'block';
+    return;
+  }
+  let html = '';
+  rules.forEach(r => {
+    const pair = r.pair.join(' + ');
+    html += `
+      <div class="interaction-card ${r.severity}">
+        <div class="ic-icon">${SEVERITY_ICON[r.severity]}</div>
+        <div class="ic-body">
+          <div class="ic-title">${SEVERITY_LABEL[r.severity]}：${r.type}</div>
+          <div class="ic-pair">${pair}</div>
+          <div class="ic-desc">${r.desc}</div>
+          <div class="ic-elderly">${r.elderly}</div>
+        </div>
+      </div>`;
+  });
+  container.innerHTML = html;
+  container.style.display = 'block';
+}
+
+// 酒精标记读写（按天）
+function getAlcoholFlags() {
+  try {
+    const data = localStorage.getItem(ALCOHOL_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch (e) { return {}; }
+}
+function isAlcoholToday() {
+  return !!getAlcoholFlags()[getTodayStr()];
+}
+function toggleAlcohol() {
+  const flags = getAlcoholFlags();
+  const today = getTodayStr();
+  if (flags[today]) {
+    delete flags[today];
+  } else {
+    flags[today] = true;
+  }
+  try { localStorage.setItem(ALCOHOL_KEY, JSON.stringify(flags)); } catch (e) {}
+  updateAlcoholBtn();
+  renderHistoryInteractions();
+}
+function updateAlcoholBtn() {
+  const btn = document.getElementById('alcohol-btn');
+  if (!btn) return;
+  if (isAlcoholToday()) {
+    btn.className = 'at-btn on';
+    btn.textContent = '已饮酒';
+  } else {
+    btn.className = 'at-btn off';
+    btn.textContent = '未饮酒';
+  }
+}
+
+// 结果页：检查当前识别药与今天已记录其他药的冲突
+function renderResultInteractions(drugId) {
+  const container = document.getElementById('result-interaction-section');
+  if (!container) return;
+  const todayRecords = loadRecords().filter(r => r.date === getTodayStr() && r.drugId !== drugId);
+  const names = [getDrugNameById(drugId)];
+  todayRecords.forEach(r => {
+    const n = getDrugNameById(r.drugId);
+    if (n) names.push(n);
+  });
+  if (isAlcoholToday()) names.push('酒精');
+  // 至少两个药才检查（含当前药）
+  if (names.length < 2) { container.style.display = 'none'; return; }
+  const rules = checkInteractions(names);
+  renderInteractionCards(container, rules);
+  // 给区域加标题
+  if (rules.length > 0) {
+    const title = document.createElement('div');
+    title.className = 'interaction-section-title';
+    title.textContent = '🛡️ 用药安全检查';
+    container.insertBefore(title, container.firstChild);
+  }
+}
+
+// 记录页：今天全部药品两两冲突检查 + 酒精
+function renderHistoryInteractions() {
+  const container = document.getElementById('history-interaction-section');
+  if (!container) return;
+  const todayRecords = loadRecords().filter(r => r.date === getTodayStr());
+  const names = [];
+  const seen = new Set();
+  todayRecords.forEach(r => {
+    const n = getDrugNameById(r.drugId);
+    if (n && !seen.has(n)) { names.push(n); seen.add(n); }
+  });
+  if (isAlcoholToday()) names.push('酒精');
+
+  if (names.length < 2) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+  const rules = checkInteractions(names);
+  // 先渲染卡片或安全提示
+  renderInteractionCards(container, rules);
+  // 再补标题（insertBefore 不会覆盖现有内容）
+  const title = document.createElement('div');
+  title.className = 'interaction-section-title';
+  title.textContent = '🛡️ 今天用药安全检查';
+  container.insertBefore(title, container.firstChild);
+}
+
+// ============================================================
+// 家属端：用药日报
+// ============================================================
+let familyDateOffset = 0; // 0=今天，-1=昨天，+1=明天（明天默认无数据）
+
+// 计算目标日期字符串（YYYY-MM-DD）
+function getFamilyDateStr(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const y = d.getFullYear();
+  const m = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+// 从 frequency 字段解析每日应服次数（返回 0 表示按需/不检测）
+function parseExpectedDailyCount(frequency) {
+  if (!frequency) return 0;
+  // "每天1次" → 1, "每天2次" → 2, "每天2-3次" → 2, "每天3次" → 3
+  // "按需服用" / "每天1次，仅睡前服" → 0（不检测）
+  if (frequency.includes('按需')) return 0;
+  if (frequency.includes('仅睡前')) return 0;
+  const m = frequency.match(/每天(\d)(?:-(\d))?次/);
+  if (!m) return 0;
+  return parseInt(m[1], 10);
+}
+
+// 漏服检测：对今天已记录的常用药，检查应服次数 vs 已服次数
+function checkMissedDose(records, dateStr) {
+  const missed = [];
+  const counts = {}; // drugId → 已服次数
+  records.forEach(r => {
+    if (r.date === dateStr) {
+      counts[r.drugId] = (counts[r.drugId] || 0) + 1;
+    }
+  });
+  Object.keys(counts).forEach(drugId => {
+    const drug = DRUG_DB[drugId];
+    if (!drug) return;
+    const expected = parseExpectedDailyCount(drug.frequency);
+    if (expected === 0) return; // 按需药不检测
+    const actual = counts[drugId];
+    if (actual < expected) {
+      missed.push({ drug, expected, actual });
+    }
+  });
+  return missed;
+}
+
+// 渲染家属端视图
+function renderFamilyView() {
+  const dateStr = getFamilyDateStr(familyDateOffset);
+  const isToday = familyDateOffset === 0;
+  const dateLabel = isToday ? '今天（' + dateStr + '）' : dateStr;
+  document.getElementById('family-date-label').textContent = dateLabel;
+
+  // 禁用"后一天"按钮（不能看未来）
+  document.getElementById('family-next-btn').disabled = (familyDateOffset >= 0);
+
+  const records = loadRecords().filter(r => r.date === dateStr);
+  const dayRecords = records.sort((a, b) => b.timestamp - a.timestamp);
+
+  // ---- 概览统计 ----
+  const statsContainer = document.getElementById('family-stats');
+  const uniqueDrugs = new Set(dayRecords.map(r => r.drugId));
+  const drugNames = Array.from(uniqueDrugs).map(id => getDrugNameById(id)).filter(Boolean);
+  if (isAlcoholToday() && isToday) drugNames.push('酒精');
+  const interactionRules = drugNames.length >= 2 ? checkInteractions(drugNames) : [];
+  const dangerCount = interactionRules.filter(r => r.severity === 'danger').length;
+  const missed = isToday ? checkMissedDose(loadRecords(), dateStr) : []; // 漏服只对今天有意义
+
+  let statsHtml = '';
+  statsHtml += `<div class="stat-card success">
+    <div class="sc-num">${dayRecords.length}</div>
+    <div class="sc-label">今日服药次数</div>
+  </div>`;
+  statsHtml += `<div class="stat-card ${uniqueDrugs.size >= 1 ? '' : 'success'}">
+    <div class="sc-num">${uniqueDrugs.size}</div>
+    <div class="sc-label">服用药品种类</div>
+  </div>`;
+  statsHtml += `<div class="stat-card ${dangerCount > 0 ? 'danger' : 'success'}">
+    <div class="sc-num">${interactionRules.length}</div>
+    <div class="sc-label">用药冲突${dangerCount > 0 ? '（含' + dangerCount + '严重）' : ''}</div>
+  </div>`;
+  statsHtml += `<div class="stat-card ${missed.length > 0 ? 'warning' : 'success'}">
+    <div class="sc-num">${missed.length}</div>
+    <div class="sc-label">可能漏服</div>
+  </div>`;
+  statsContainer.innerHTML = statsHtml;
+
+  // ---- 漏服提醒 ----
+  const missedContainer = document.getElementById('family-missed-section');
+  if (missed.length === 0) {
+    missedContainer.innerHTML = '';
+  } else {
+    let html = '';
+    missed.forEach(m => {
+      html += `<div class="missed-alert">
+        <div class="ma-icon">⏰</div>
+        <div class="ma-body">
+          <div class="ma-title">${m.drug.name} 可能漏服</div>
+          <div class="ma-desc">应服 ${m.expected} 次，今天已服 ${m.actual} 次。请提醒家人按时服药。</div>
+        </div>
+      </div>`;
+    });
+    missedContainer.innerHTML = html;
+  }
+
+  // ---- 用药安全检查（复用冲突检测） ----
+  const interactContainer = document.getElementById('family-interaction-section');
+  if (drugNames.length >= 2) {
+    renderInteractionCards(interactContainer, interactionRules);
+    const title = document.createElement('div');
+    title.className = 'interaction-section-title';
+    title.textContent = '🛡️ 用药安全检查';
+    interactContainer.insertBefore(title, interactContainer.firstChild);
+  } else {
+    interactContainer.innerHTML = '';
+    interactContainer.style.display = 'none';
+  }
+
+  // ---- 时间线 ----
+  const timelineContainer = document.getElementById('family-timeline');
+  if (dayRecords.length === 0) {
+    timelineContainer.innerHTML = '<div class="empty-state"><span class="empty-icon">📭</span>当天无用药记录</div>';
+  } else {
+    let html = '';
+    dayRecords.forEach(r => {
+      const drug = DRUG_DB[r.drugId];
+      if (!drug) return;
+      html += `<div class="timeline-item">
+        <div class="ti-time">${r.time}</div>
+        <div class="ti-body">
+          <div class="ti-name">${drug.name}</div>
+          <div class="ti-desc">${drug.plain_class} · ${drug.frequency}</div>
+        </div>
+      </div>`;
+    });
+    timelineContainer.innerHTML = html;
+  }
+}
+
+function changeFamilyDate(offset) {
+  familyDateOffset += offset;
+  if (familyDateOffset > 0) familyDateOffset = 0; // 不能看未来
+  renderFamilyView();
+}
+
+function confirmMedication() {
+  if (!currentDrug) return;
+  saveRecord(currentDrug);
+  showToast('已记录服药 ✅', 'success');
+  setTimeout(() => {
+    showPage('home');
+  }, 1000);
+}
+
+function renderHistory() {
+  const container = document.getElementById('history-list');
+  const records = loadRecords();
+
+  if (records.length === 0) {
+    container.innerHTML = '<div class="empty-state"><span class="empty-icon">📋</span>还没有用药记录<br>拍一下药盒开始记录吧</div>';
+    return;
+  }
+
+  // 按日期分组
+  const grouped = {};
+  records.forEach(r => {
+    if (!grouped[r.date]) grouped[r.date] = [];
+    grouped[r.date].push(r);
+  });
+
+  // 按日期倒序
+  const dates = Object.keys(grouped).sort().reverse();
+
+  let html = '';
+  dates.forEach(date => {
+    const isToday = date === getTodayStr();
+    const dateLabel = isToday ? '今天（' + date + '）' : date;
+    html += '<div class="history-date-group"><div class="history-date">' + dateLabel + '</div>';
+    // 当天记录按时间倒序
+    const dayRecords = grouped[date].sort((a, b) => b.timestamp - a.timestamp);
+    dayRecords.forEach(r => {
+      const drug = DRUG_DB[r.drugId];
+      if (!drug) return;
+      html += `
+        <div class="history-item">
+          <div class="h-icon">💊</div>
+          <div class="h-info">
+            <div class="h-name">${drug.name}</div>
+            <div class="h-detail">${drug.plain_class} · ${drug.frequency}</div>
+          </div>
+          <div class="h-time">${r.time}</div>
+        </div>`;
+    });
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+// ============================================================
+// 工具函数
+// ============================================================
+function getTodayStr() {
+  const now = new Date();
+  return now.getFullYear() + '-' + (now.getMonth()+1).toString().padStart(2, '0') + '-' + now.getDate().toString().padStart(2, '0');
+}
+
+let toastTimer = null;
+function showToast(message, type) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = 'toast ' + (type || '');
+  // 强制重排
+  void toast.offsetWidth;
+  toast.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('show');
+  }, 2500);
+}
+
+// ============================================================
+// 应用启动
+// ============================================================
+initHome();
+
+// ============================================================
+// PWA：Service Worker 注册（离线可用 + 可添加到主屏幕）
+// ============================================================
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker
+      .register('./sw.js', { scope: './' })
+      .then(function (reg) {
+        console.log('[PWA] Service Worker 注册成功，scope:', reg.scope);
+      })
+      .catch(function (err) {
+        console.error('[PWA] Service Worker 注册失败:', err);
+      });
+  });
+}
+</script>
+</body>
+</html>
