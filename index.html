@@ -1860,9 +1860,26 @@ function capturePhoto() {
 function handleFileSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
+  // 压缩后再上传：相册原图可能超过5MB，统一缩放到最长边1280px + JPEG 0.8
   const reader = new FileReader();
   reader.onload = (e) => {
-    startRecognition(e.target.result);
+    const img = new Image();
+    img.onload = () => {
+      const MAX_SIDE = 1280;
+      let w = img.width, h = img.height;
+      if (w > MAX_SIDE || h > MAX_SIDE) {
+        const scale = Math.min(MAX_SIDE / w, MAX_SIDE / h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      startRecognition(canvas.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = () => startRecognition(e.target.result); // 解码失败退回原图
+    img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
