@@ -1700,6 +1700,16 @@ function renderResult(drug) {
   renderResultInteractions(drug.id);
 
   showPage('result');
+
+  // 自动语音播报（0.8倍慢速，适老化）——延迟等待页面切换动画完成
+  setTimeout(() => {
+    if (duplicate) {
+      // 重复服药场景：优先播报警告（患者最需要立即知道的信息）
+      speak('请注意！您今天 ' + duplicate.time + ' 已经吃过「' + drug.name + '」了，请不要重复服用。如不确定，请咨询您的医生或家属。');
+    } else {
+      speakResult();
+    }
+  }, 800);
 }
 
 // ============================================================
