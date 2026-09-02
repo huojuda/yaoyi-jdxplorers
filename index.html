@@ -2001,30 +2001,58 @@ function capturePhoto() {
   ctx.drawImage(video, 0, 0);
   const imageData = canvas.toDataURL('image/jpeg', 0.8);
   stopCamera();
+  // 意外超大时（复杂场景）走同样的压缩保证
+  if (imageData.length > 700 * 1024) {
+    const img = new Image();
+    img.onload = () => startRecognition(compressImageDataUrl(img));
+    img.onerror = () => startRecognition(imageData);
+    img.src = imageData;
+    return;
+  }
   startRecognition(imageData);
+}
+
+// 压缩图片并保证体积达标：
+// EdgeOne 边缘函数有 1MB 请求体上限，超限会被静默丢弃导致"缺少图片数据"。
+// 策略：先缩放到 maxSide，再逐步降质量（0.8→0.4）、降分辨率（每轮×0.75），直到 base64 低于 maxBytes
+function compressImageDataUrl(img, maxSide, maxBytes) {
+  maxSide = maxSide || 1280;
+  maxBytes = maxBytes || 700 * 1024; // 700KB 字符数，留足 JSON/其他字段余量
+  let w = img.naturalWidth || img.width;
+  let h = img.naturalHeight || img.height;
+  const scale = Math.min(1, maxSide / Math.max(w, h));
+  w = Math.max(1, Math.round(w * scale));
+  h = Math.max(1, Math.round(h * scale));
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = w;
+  canvas.height = h;
+  ctx.drawImage(img, 0, 0, w, h);
+  let quality = 0.8;
+  let dataUrl = canvas.toDataURL('image/jpeg', quality);
+  while (dataUrl.length > maxBytes && (quality > 0.4 || Math.max(w, h) > 640)) {
+    if (quality > 0.4) {
+      quality = Math.max(0.4, quality - 0.1);
+    } else {
+      w = Math.max(1, Math.round(w * 0.75));
+      h = Math.max(1, Math.round(h * 0.75));
+      canvas.width = w;
+      canvas.height = h;
+      ctx.drawImage(img, 0, 0, w, h);
+    }
+    dataUrl = canvas.toDataURL('image/jpeg', quality);
+  }
+  return dataUrl;
 }
 
 function handleFileSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
-  // 压缩后再上传：相册原图可能超过5MB，统一缩放到最长边1280px + JPEG 0.8
+  // 压缩后再上传：相册原图可能超过5MB，缩放+降质直到满足请求体限制
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = new Image();
-    img.onload = () => {
-      const MAX_SIDE = 1280;
-      let w = img.width, h = img.height;
-      if (w > MAX_SIDE || h > MAX_SIDE) {
-        const scale = Math.min(MAX_SIDE / w, MAX_SIDE / h);
-        w = Math.round(w * scale);
-        h = Math.round(h * scale);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      startRecognition(canvas.toDataURL('image/jpeg', 0.8));
-    };
+    img.onload = () => startRecognition(compressImageDataUrl(img));
     img.onerror = () => startRecognition(e.target.result); // 解码失败退回原图
     img.src = e.target.result;
   };
