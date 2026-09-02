@@ -1131,8 +1131,8 @@ body {
     👤 登录 / 注册
   </button>
 
-  <button class="btn btn-ghost" onclick="showPairCodeModal()" style="margin-top:8px;" id="pair-code-btn">
-    🔗 设备配对
+  <button class="btn btn-ghost" onclick="onPairTap()" style="margin-top:8px;" id="pair-code-btn">
+    🔗 家人绑定
   </button>
 
   <div class="section-title">📅 今日用药</div>
@@ -1142,7 +1142,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.0.4
   </div>
 </div>
 
@@ -1878,9 +1878,12 @@ function showPage(pageId) {
 function onEnterFamilyPage() {
   const u = getCurrentUser();
   if (u) {
-    // 已登录 → 走账号关联通道
-    loadRelationList(); // 异步，完成后自动渲染
-    renderRelationSection();
+    // 已登录 → 走账号关联通道（先显示加载中，loadRelationList 完成后渲染最终状态）
+    const section = document.getElementById('pair-section');
+    if (section) section.innerHTML = '<div class="pair-card" style="text-align:center;color:var(--text-secondary);">加载关联列表…</div>';
+    document.getElementById('guardian-panel-section').style.display = 'none';
+    document.getElementById('family-report-section').style.display = 'none';
+    loadRelationList();
   } else {
     // 未登录 → 旧配对码 + 登录引导
     const familyId = localStorage.getItem(FAMILY_ID_KEY);
@@ -2898,6 +2901,14 @@ async function initAuth() {
   }
 }
 
+// 首页"家人绑定"按钮：按登录状态和角色路由到正确的绑定通道
+function onPairTap() {
+  const u = getCurrentUser();
+  if (!u) { showPage('family'); return; }            // 未登录 → 家属查看页（含登录引导）
+  if (u.role === 'patient') { openPairModal(); return; } // 患者 → 直接生成绑定码
+  showPage('family');                                 // 家属 → 家属查看页（输入绑定码入口）
+}
+
 // 首页账号按钮
 function onAccountTap() {
   const user = getCurrentUser();
@@ -3091,36 +3102,16 @@ async function apiGet(path, extraQS = '') {
 }
 
 // ============================================================
-// 患者端：生成配对码（弹窗显示给家属输入）
-// ============================================================
-async function showPairCodeModal() {
-  document.getElementById('pair-modal').style.display = 'flex';
-  document.getElementById('pair-modal-desc').textContent = '正在生成配对码...';
-
-  const result = await apiPost('/api/pair', { action: 'create' });
-  if (result.error) {
-    document.getElementById('pair-modal-desc').innerHTML =
-      '配对码生成失败：' + result.error + '<br><br>如未配置 Upstash Redis，可使用同设备演示模式（家属在同一设备查看）';
-    return;
-  }
-
-  // 保存 familyId 到本地（患者端用）
-  localStorage.setItem(FAMILY_ID_KEY, result.familyId);
-
-  document.getElementById('pair-modal-desc').innerHTML =
-    '请让家属在他们的手机上打开药忆，输入以下配对码：<br>' +
-    '<div style="font-size:36px;font-weight:700;letter-spacing:12px;color:var(--primary);background:#f0fdf4;border-radius:12px;padding:16px;margin:12px 0;">' +
-    result.code + '</div>' +
-    '<div style="font-size:13px;color:var(--text-light);">配对码5分钟内有效</div>';
-}
-
-// ============================================================
 // 患者端：生成绑定码（账号关联通道）
 // ============================================================
 async function openPairModal() {
   const u = getCurrentUser();
   if (!u) { showToast('请先登录', 'warning'); showPage('auth'); return; }
-  if (u.role !== 'patient') { showToast('仅患者账号可生成绑定码', 'warning'); return; }
+  if (u.role !== 'patient') {
+    showToast('当前是家人账号，无需生成绑定码。请进入"家属查看"输入长辈的绑定码', 'warning');
+    showPage('family');
+    return;
+  }
 
   document.getElementById('pair-modal').style.display = 'flex';
   document.getElementById('pair-modal-desc').textContent = '正在生成绑定码...';
@@ -3253,12 +3244,23 @@ async function sendHelpAlert() {
 let relationList = []; // 当前账号已关联的对方列表
 let selectedPatientId = null; // 当前选中要查看的患者（家人端）
 
-// 加载关联列表（登录后调用）
+// 加载关联列表（登录后调用；失败在页面内显示错误+重试）
 async function loadRelationList() {
   const u = getCurrentUser();
   if (!u) { relationList = []; return; }
+  const section = document.getElementById('pair-section');
   const r = await apiGet('/api/relation', 'action=list');
-  if (r.error) { showToast('加载关联列表失败: ' + r.error, 'warning'); relationList = []; return; }
+  if (r.error) {
+    relationList = [];
+    if (section) {
+      section.innerHTML = `<div class="pair-card" style="text-align:center;">
+        <div class="pc-desc">关联列表加载失败：${r.error}</div>
+        <button class="btn btn-primary" onclick="loadRelationList()" style="margin-top:12px;">重试</button>
+        <div class="pc-hint" style="margin-top:8px;">如果是登录问题，可尝试退出后重新登录</div>
+      </div>`;
+    }
+    return;
+  }
   relationList = r.list || [];
   selectedPatientId = null;
   renderRelationSection();
