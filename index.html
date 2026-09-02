@@ -2642,9 +2642,25 @@ function apiUrl(path, extraQS = '') {
   return url;
 }
 
-// ---- 通用 POST 封装 ----
+// ---- 通用请求封装：默认 GET（绕开 EdgeOne 预览保护的 POST body 丢失问题）----
+// 只有 recognize（带 image 大字段）才用 POST
 async function apiPost(path, body, extraQS = '') {
   try {
+    // 判断是否需要用 POST（图片识药）
+    const needsPost = body && body.image && body.image.length > 1000;
+    if (!needsPost) {
+      // 普通请求：所有参数拼到 URL 上用 GET
+      const qsParts = [];
+      for (const key in body) {
+        if (body[key] !== undefined && body[key] !== null && body[key] !== '') {
+          qsParts.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(body[key])));
+        }
+      }
+      const bodyQS = qsParts.length ? qsParts.join('&') : '';
+      const fullQS = [bodyQS, extraQS].filter(Boolean).join('&');
+      return await apiGet(path, fullQS);
+    }
+    // 图片请求：保持 POST
     const resp = await fetch(apiUrl(path, extraQS), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2653,7 +2669,6 @@ async function apiPost(path, body, extraQS = '') {
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       if (text.includes('UNAUTHORIZED')) {
-        // token 已过期，清掉让横幅显示
         localStorage.removeItem(EO_TOKEN_KEY);
         localStorage.removeItem(EO_TIME_KEY);
         return { error: '访问链接已过期（3小时有效期），请从 EdgeOne 控制台点击"预览"按钮重新获取链接' };
@@ -2662,7 +2677,7 @@ async function apiPost(path, body, extraQS = '') {
     }
     return await resp.json();
   } catch (e) {
-    console.error('[API] POST ' + path + ' 失败:', e);
+    console.error('[API] 请求 ' + path + ' 失败:', e);
     return { error: '网络错误：' + String(e.message || e) };
   }
 }
@@ -3043,18 +3058,25 @@ if ('Notification' in window && Notification.permission === 'default') {
 }
 
 // ============================================================
-// PWA：Service Worker 注册（离线可用 + 可添加到主屏幕）
+// PWA：Service Worker 注册 — 临时禁用，确保每次加载最新代码
+// 功能稳定后恢复
 // ============================================================
+// if ('serviceWorker' in navigator) {
+//   window.addEventListener('load', function () {
+//     navigator.serviceWorker
+//       .register('./sw.js', { scope: './' })
+//       .then(function (reg) {
+//         console.log('[PWA] Service Worker 注册成功，scope:', reg.scope);
+//       })
+//       .catch(function (err) {
+//         console.error('[PWA] Service Worker 注册失败:', err);
+//       });
+//   });
+// }
+// 同时清除已注册的旧 SW
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker
-      .register('./sw.js', { scope: './' })
-      .then(function (reg) {
-        console.log('[PWA] Service Worker 注册成功，scope:', reg.scope);
-      })
-      .catch(function (err) {
-        console.error('[PWA] Service Worker 注册失败:', err);
-      });
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => r.unregister());
   });
 }
 </script>
