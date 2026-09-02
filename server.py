@@ -317,6 +317,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
                 self._auth_login(data)
             elif action == "resetpw":
                 self._auth_resetpw(data)
+            elif action == "delete":
+                self._auth_delete(data, token)
             elif action == "diag":
                 self._auth_diag(data)
             elif action == "me":
@@ -483,6 +485,55 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         print(f"[账号] 密码重置: {phone}")
         self._send_json(200, {"ok": True})
 
+    def _auth_delete(self, data, token=""):
+        """注销账号（校验手机号+密码后删除全部账号数据，不可恢复）"""
+        phone = str(data.get("phone", "")).strip()
+        password = str(data.get("password", ""))
+
+        if not (phone.startswith("1") and len(phone) == 11 and phone.isdigit()):
+            self._send_json(400, {"error": "请输入11位手机号"})
+            return
+        if not password:
+            self._send_json(400, {"error": "请输入密码"})
+            return
+
+        # 防爆破：与登录共用失败计数
+        fails = int((redis_cmd("GET", "login:fail:" + phone).get("result") or "0"))
+        if fails >= 5:
+            self._send_json(429, {"error": "失败次数过多，请10分钟后重试"})
+            return
+
+        user_id = redis_cmd("GET", "user:phone:" + phone).get("result")
+        if not user_id:
+            self._send_json(404, {"error": "该手机号尚未注册"})
+            return
+
+        user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+        if not user.get("salt") or not user.get("passHash"):
+            self._send_json(409, {"error": "账号数据异常，请先用\"登录\"修复一次再注销"})
+            return
+
+        computed = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), bytes.fromhex(user.get("salt", "")), 10000
+        ).hex()
+        if computed != user.get("passHash"):
+            cnt = redis_cmd("INCR", "login:fail:" + phone).get("result", 1)
+            redis_cmd("EXPIRE", "login:fail:" + phone, "600")
+            remaining = 5 - int(cnt)
+            hint = f"（还可尝试{remaining}次）" if 0 < remaining <= 2 else ""
+            self._send_json(401, {"error": "手机号或密码错误" + hint})
+            return
+
+        # 删除手机号映射 + 用户数据 + 失败计数 + 当前会话
+        redis_cmd("DEL", "user:phone:" + phone)
+        redis_cmd("DEL", f"user:{user_id}")
+        redis_cmd("DEL", "login:fail:" + phone)
+        if token:
+            redis_cmd("DEL", "session:" + token)
+
+        print(f"[账号] 注销账号: {phone}")
+        self._send_json(200, {"ok": True})
+
     def _auth_diag(self, data):
         """账号诊断（只返回长度/存在性，不泄露盐值与哈希）"""
         phone = str(data.get("phone", "")).strip()
@@ -518,6 +569,13 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._send_json(401, {"error": "登录已过期，请重新登录"})
             return
         user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+
+        # 账号已注销（用户数据为空）——会话作废
+        if not user.get("salt"):
+            redis_cmd("DEL", "session:" + token)
+            self._send_json(401, {"error": "账号已注销或数据异常，请重新登录"})
+            return
+
         redis_cmd("EXPIRE", "session:" + token, "604800")
         self._send_json(200, {"user": {"userId": user_id, "phone": user.get("phone"), "role": user.get("role"), "displayName": user.get("displayName")}})
 

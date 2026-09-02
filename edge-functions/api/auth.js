@@ -56,11 +56,12 @@ export default function onRequest(context) {
       if (action === 'register') return await handleRegister(env, data);
       if (action === 'login') return await handleLogin(env, data);
       if (action === 'resetpw') return await handleResetPw(env, data);
+      if (action === 'delete') return await handleDelete(env, data);
       if (action === 'diag') return await handleDiag(env, data);
       if (action === 'me') return await handleMe(env, token);
       if (action === 'logout') return await handleLogout(env, token);
 
-      return json(400, { error: '未知操作，应为 register/login/resetpw/diag/me/logout' });
+      return json(400, { error: '未知操作，应为 register/login/resetpw/delete/diag/me/logout' });
     } catch (e) {
       return json(500, { error: String(e && e.message || e) });
     }
@@ -232,6 +233,51 @@ async function handleResetPw(env, data) {
   return json(200, { ok: true });
 }
 
+// ---------- 注销账号（校验手机号+密码后删除全部账号数据，不可恢复） ----------
+async function handleDelete(env, data) {
+  const phone = String(data.phone || '').trim();
+  const password = String(data.password || '');
+
+  if (!/^1\d{10}$/.test(phone)) {
+    return json(400, { error: '请输入11位手机号' });
+  }
+  if (!password) {
+    return json(400, { error: '请输入密码' });
+  }
+
+  // 防爆破：与登录共用失败计数
+  const failCount = await redisCmd(env, 'GET', 'login:fail:' + phone);
+  if ((parseInt(failCount.result || '0', 10)) >= MAX_LOGIN_FAILS) {
+    return json(429, { error: '失败次数过多，请10分钟后重试' });
+  }
+
+  const userId = (await redisCmd(env, 'GET', 'user:phone:' + phone)).result;
+  if (!userId) {
+    return json(404, { error: '该手机号尚未注册' });
+  }
+
+  const user = (await redisCmd(env, 'HGETALL', 'user:' + userId)).result || {};
+  if (!user.salt || !user.passHash) {
+    return json(409, { error: '账号数据异常，请先用"登录"修复一次再注销' });
+  }
+
+  const computed = await pbkdf2(password, user.salt);
+  if (computed !== user.passHash) {
+    const cnt = await redisCmd(env, 'INCR', 'login:fail:' + phone);
+    await redisCmd(env, 'EXPIRE', 'login:fail:' + phone, String(LOCK_SECONDS));
+    const remaining = MAX_LOGIN_FAILS - parseInt(cnt.result || '1', 10);
+    return json(401, { error: '手机号或密码错误' + (remaining > 0 && remaining <= 2 ? '（还可尝试' + remaining + '次）' : '') });
+  }
+
+  // 删除手机号映射 + 用户数据 + 失败计数 + 当前会话
+  await redisCmd(env, 'DEL', 'user:phone:' + phone);
+  await redisCmd(env, 'DEL', 'user:' + userId);
+  await redisCmd(env, 'DEL', 'login:fail:' + phone);
+  if (data._auth) await redisCmd(env, 'DEL', 'session:' + data._auth);
+
+  return json(200, { ok: true });
+}
+
 // ---------- 账号诊断（只返回长度/存在性，不泄露盐值与哈希） ----------
 async function handleDiag(env, data) {
   const phone = String(data.phone || '').trim();
@@ -267,6 +313,11 @@ async function handleMe(env, token) {
   if (!userId) return json(401, { error: '登录已过期，请重新登录' });
 
   const user = (await redisCmd(env, 'HGETALL', 'user:' + userId)).result || {};
+  // 账号已注销（用户数据为空）——会话作废
+  if (!user.salt) {
+    await redisCmd(env, 'DEL', 'session:' + token);
+    return json(401, { error: '账号已注销或数据异常，请重新登录' });
+  }
   // 滑动续期
   await redisCmd(env, 'EXPIRE', 'session:' + token, String(SESSION_TTL));
 

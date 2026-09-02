@@ -1170,6 +1170,10 @@ body {
     <button class="btn btn-primary" id="auth-submit" onclick="handleAuthSubmit()" style="margin-top:20px;">登 录</button>
 
     <div class="auth-hint" id="auth-hint">没有账号？点击上方"注册"创建一个</div>
+
+    <div id="delete-row" style="text-align:center;margin-top:10px;">
+      <a href="javascript:void(0)" onclick="switchAuthMode('delete')" style="font-size:13px;color:#dc2626;text-decoration:none;">注销账号</a>
+    </div>
   </div>
 </div>
 
@@ -2832,7 +2836,7 @@ function renderAccountBtn() {
 }
 
 // ---- 登录/注册页交互 ----
-let authMode = 'login';       // login | register | reset
+let authMode = 'login';       // login | register | reset | delete
 let pickedRole = 'patient';   // patient | caregiver
 
 function switchAuthMode(mode) {
@@ -2840,17 +2844,21 @@ function switchAuthMode(mode) {
   const isLogin = mode === 'login';
   const isRegister = mode === 'register';
   const isReset = mode === 'reset';
+  const isDelete = mode === 'delete';
   document.getElementById('tab-login').classList.toggle('active', isLogin);
   document.getElementById('tab-register').classList.toggle('active', isRegister);
   document.getElementById('auth-role-group').style.display = isRegister ? 'block' : 'none';
   document.getElementById('forgot-row').style.display = isLogin ? 'block' : 'none';
-  document.getElementById('auth-title').textContent = isReset ? '重置密码' : (isLogin ? '登录' : '注册');
-  document.getElementById('auth-submit').textContent = isReset ? '重置密码' : (isLogin ? '登 录' : '注 册');
-  document.getElementById('auth-hint').textContent = isReset
-    ? '设置新密码后即可用新密码登录'
-    : isLogin
-      ? '没有账号？点击上方"注册"创建一个'
-      : '注册即自动登录，信息保存在您的账号下';
+  document.getElementById('delete-row').style.display = (isLogin || isReset) ? 'block' : 'none';
+  document.getElementById('auth-title').textContent = isDelete ? '注销账号' : (isReset ? '重置密码' : (isLogin ? '登录' : '注册'));
+  document.getElementById('auth-submit').textContent = isDelete ? '确认注销' : (isReset ? '重置密码' : (isLogin ? '登 录' : '注 册'));
+  document.getElementById('auth-hint').textContent = isDelete
+    ? '验证身份后永久删除账号，不可恢复，请谨慎操作'
+    : isReset
+      ? '设置新密码后即可用新密码登录'
+      : isLogin
+        ? '没有账号？点击上方"注册"创建一个'
+        : '注册即自动登录，信息保存在您的账号下';
 }
 
 function pickRole(role) {
@@ -2867,6 +2875,9 @@ async function handleAuthSubmit() {
   if (!/^1\d{10}$/.test(phone)) { showToast('请输入11位手机号', 'warning'); return; }
   if (password.length < 6) { showToast('密码至少6位', 'warning'); return; }
 
+  // 注销前二次确认
+  if (authMode === 'delete' && !confirm('确定要永久注销账号吗？\n注销后账号数据将被删除且无法恢复！')) return;
+
   const submitBtn = document.getElementById('auth-submit');
   submitBtn.disabled = true;
   submitBtn.textContent = '请稍候…';
@@ -2875,14 +2886,23 @@ async function handleAuthSubmit() {
     ? { action: 'register', phone, password, role: pickedRole, displayName }
     : authMode === 'reset'
       ? { action: 'resetpw', phone, password }
-      : { action: 'login', phone, password };
+      : authMode === 'delete'
+        ? { action: 'delete', phone, password }
+        : { action: 'login', phone, password };
 
   const r = await apiPost('/api/auth', body);
 
   submitBtn.disabled = false;
-  submitBtn.textContent = authMode === 'login' ? '登 录' : (authMode === 'reset' ? '重置密码' : '注 册');
+  submitBtn.textContent = authMode === 'login' ? '登 录' : (authMode === 'reset' ? '重置密码' : (authMode === 'delete' ? '确认注销' : '注 册'));
 
   if (r.error) { showToast(r.error, 'danger'); return; }
+
+  if (authMode === 'delete') {
+    clearAuthSession();
+    showToast('账号已注销', 'success');
+    switchAuthMode('login');
+    return;
+  }
 
   if (authMode === 'reset') {
     showToast('密码已重置，请用新密码登录', 'success');
