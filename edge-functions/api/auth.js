@@ -258,7 +258,12 @@ async function handleDelete(env, data) {
 
   const user = (await redisCmd(env, 'HGETALL', 'user:' + userId)).result || {};
   if (!user.salt || !user.passHash) {
-    return json(409, { error: '账号数据异常，请先用"登录"修复一次再注销' });
+    // 僵尸账号（数据损坏且无法恢复）无法验证密码：直接清理，避免"先修复才能注销"的死锁
+    await redisCmd(env, 'DEL', 'user:phone:' + phone);
+    await redisCmd(env, 'DEL', 'user:' + userId);
+    await redisCmd(env, 'DEL', 'login:fail:' + phone);
+    if (data._auth) await redisCmd(env, 'DEL', 'session:' + data._auth);
+    return json(200, { ok: true, wasZombie: true });
   }
 
   const computed = await pbkdf2(password, user.salt);

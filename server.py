@@ -510,7 +510,14 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
 
         user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
         if not user.get("salt") or not user.get("passHash"):
-            self._send_json(409, {"error": "账号数据异常，请先用\"登录\"修复一次再注销"})
+            # 僵尸账号（数据损坏且无法恢复）无法验证密码：直接清理，避免死锁
+            redis_cmd("DEL", "user:phone:" + phone)
+            redis_cmd("DEL", f"user:{user_id}")
+            redis_cmd("DEL", "login:fail:" + phone)
+            if token:
+                redis_cmd("DEL", "session:" + token)
+            print(f"[账号] 注销僵尸账号: {phone}")
+            self._send_json(200, {"ok": True, "wasZombie": True})
             return
 
         computed = hashlib.pbkdf2_hmac(

@@ -2899,7 +2899,7 @@ async function handleAuthSubmit() {
 
   if (authMode === 'delete') {
     clearAuthSession();
-    showToast('账号已注销', 'success');
+    showToast(r.wasZombie ? '已注销（该账号数据已损坏，已彻底清理）' : '账号已注销', 'success');
     switchAuthMode('login');
     return;
   }
