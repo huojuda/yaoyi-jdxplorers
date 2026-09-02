@@ -365,6 +365,12 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             "createdAt", str(int(time.time() * 1000)),
         )
 
+        # 发布映射前回读验证，防止静默写入失败产生僵尸账号
+        check = redis_cmd("HGET", f"user:{user_id}", "salt").get("result")
+        if not check:
+            self._send_json(500, {"error": "数据写入验证失败（Redis异常），请稍后重试"})
+            return
+
         nx = redis_cmd("SET", "user:phone:" + phone, user_id, "NX")
         if nx.get("result") != "OK":
             redis_cmd("DEL", f"user:{user_id}")  # 清理本次写入的孤儿数据
@@ -395,9 +401,34 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
 
         user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
 
-        # 用户数据不完整（缺盐值或哈希）——僵尸账号，引导重置
+        # 用户数据不完整（缺盐值或哈希）——僵尸账号：用本次输入的密码自动修复并直接登录
         if not user.get("salt") or not user.get("passHash"):
-            self._send_json(409, {"error": "账号数据异常，请点击\"忘记密码\"重置密码"})
+            salt = os.urandom(16).hex()
+            pass_hash = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), bytes.fromhex(salt), 10000
+            ).hex()
+            redis_cmd("HSET", f"user:{user_id}", "passHash", pass_hash, "salt", salt)
+            redis_cmd("DEL", "login:fail:" + phone)
+
+            # 写入后回读验证，防止静默丢失
+            check = redis_cmd("HGET", f"user:{user_id}", "salt").get("result")
+            if not check:
+                self._send_json(500, {"error": "数据写入验证失败（Redis异常），请稍后重试"})
+                return
+
+            token = os.urandom(32).hex()
+            redis_cmd("SET", "session:" + token, user_id, "EX", "604800")
+            print(f"[账号] 自动修复僵尸账号: {phone}")
+            self._send_json(200, {
+                "token": token,
+                "repaired": True,
+                "user": {
+                    "userId": user_id,
+                    "phone": user.get("phone", phone),
+                    "role": user.get("role", "patient"),
+                    "displayName": user.get("displayName", "长辈"),
+                },
+            })
             return
 
         computed = hashlib.pbkdf2_hmac(
@@ -440,6 +471,13 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             "sha256", password.encode(), bytes.fromhex(salt), 10000
         ).hex()
         redis_cmd("HSET", f"user:{user_id}", "passHash", pass_hash, "salt", salt)
+
+        # 写入后回读验证
+        check = redis_cmd("HGET", f"user:{user_id}", "salt").get("result")
+        if not check:
+            self._send_json(500, {"error": "数据写入验证失败（Redis异常），请稍后重试"})
+            return
+
         redis_cmd("DEL", "login:fail:" + phone)  # 重置成功即解除锁定
 
         print(f"[账号] 密码重置: {phone}")

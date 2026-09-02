@@ -100,6 +100,12 @@ async function handleRegister(env, data) {
     'createdAt', String(Date.now())
   );
 
+  // 发布映射前回读验证，防止静默写入失败产生僵尸账号
+  const check = await redisCmd(env, 'HGET', 'user:' + userId, 'salt');
+  if (!check.result) {
+    return json(500, { error: '数据写入验证失败（Redis异常），请稍后重试' });
+  }
+
   const nx = await redisCmd(env, 'SET', 'user:phone:' + phone, userId, 'NX');
   if (nx.result !== 'OK') {
     await redisCmd(env, 'DEL', 'user:' + userId); // 清理本次写入的孤儿数据
@@ -139,9 +145,31 @@ async function handleLogin(env, data) {
 
   const user = (await redisCmd(env, 'HGETALL', 'user:' + userId)).result || {};
 
-  // 用户数据不完整（缺盐值或哈希）——僵尸账号，引导重置而非无意义的"密码错误"
+  // 用户数据不完整（缺盐值或哈希）——僵尸账号：用本次输入的密码自动修复并直接登录
   if (!user.salt || !user.passHash) {
-    return json(409, { error: '账号数据异常，请点击"忘记密码"重置密码' });
+    const salt = randomHex(16);
+    const passHash = await pbkdf2(password, salt);
+    await redisCmd(env, 'HSET', 'user:' + userId, 'passHash', passHash, 'salt', salt);
+    await redisCmd(env, 'DEL', 'login:fail:' + phone);
+
+    // 写入后回读验证，防止静默丢失
+    const check = await redisCmd(env, 'HGET', 'user:' + userId, 'salt');
+    if (!check.result) {
+      return json(500, { error: '数据写入验证失败（Redis异常），请稍后重试' });
+    }
+
+    const token = randomHex(32);
+    await redisCmd(env, 'SET', 'session:' + token, userId, 'EX', String(SESSION_TTL));
+    return json(200, {
+      token,
+      repaired: true,
+      user: {
+        userId,
+        phone: user.phone || phone,
+        role: user.role || 'patient',
+        displayName: user.displayName || '长辈',
+      },
+    });
   }
 
   const computed = await pbkdf2(password, user.salt);
@@ -191,6 +219,12 @@ async function handleResetPw(env, data) {
   const salt = randomHex(16);
   const passHash = await pbkdf2(password, salt);
   await redisCmd(env, 'HSET', 'user:' + userId, 'passHash', passHash, 'salt', salt);
+
+  // 写入后回读验证
+  const check = await redisCmd(env, 'HGET', 'user:' + userId, 'salt');
+  if (!check.result) {
+    return json(500, { error: '数据写入验证失败（Redis异常），请稍后重试' });
+  }
 
   // 重置成功即解除登录失败锁定
   await redisCmd(env, 'DEL', 'login:fail:' + phone);
@@ -288,7 +322,12 @@ async function redisCmd(env, ...args) {
     },
     body: JSON.stringify(args),
   });
-  return await resp.json();
+  const data = await resp.json();
+  // 不检查 resp.ok 会把 Upstash 错误（限流/配额/鉴权）当成"数据为空"处理，导致诡异状态
+  if (!resp.ok) {
+    throw new Error('Redis ' + resp.status + ': ' + (data && data.error || 'unknown'));
+  }
+  return data;
 }
 
 function randomHex(byteLen) {

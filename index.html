@@ -2891,7 +2891,7 @@ async function handleAuthSubmit() {
   }
 
   setAuthSession(r.token, r.user);
-  showToast('欢迎，' + r.user.displayName, 'success');
+  showToast(r.repaired ? '账号已自动修复，请牢记当前密码' : '欢迎，' + r.user.displayName, 'success');
   showPage('home');
 }
 
