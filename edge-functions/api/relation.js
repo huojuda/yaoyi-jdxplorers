@@ -148,11 +148,10 @@ async function handlePending(env, userId) {
 }
 
 async function getUser(env, userId) {
+  // redisCmd 已把 HGETALL 的扁平数组转成对象，这里直接使用
   const h = await redisCmd(env, 'HGETALL', 'user:' + userId);
-  const fields = h.result || [];
-  if (fields.length === 0) return null;
-  const obj = {};
-  for (let i = 0; i < fields.length; i += 2) obj[fields[i]] = fields[i + 1];
+  const obj = h.result || {};
+  if (!Object.keys(obj).length) return null;
   obj.userId = userId;
   return obj;
 }
