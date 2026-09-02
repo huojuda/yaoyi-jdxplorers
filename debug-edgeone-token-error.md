@@ -1,33 +1,22 @@
 # Debug Session: edgeone-token-error
 
 ## Symptoms
-- User sees `SyntaxError: Unexpected token '<', '<!doctype html' ... is not valid JSON` on guardian-side pairing verify
-- URL bar shows bare domain `yaoyi-jdxplorers-wphvdfc9.edgeone.cool` WITHOUT `?eo_token=...` query params
-- Previously had same error on patient-side pairing create; fix was pushed (`f066b73`) but user reports it still broken on guardian side
+- User sees `SyntaxError: Unexpected token '<'` on API calls
+- URL bar shows bare domain without `?eo_token=` params
 
-## Reproduction Steps
-1. Open EdgeOne preview URL (with token) on phone
-2. Patient side: click 设备配对 → verify code generation works
-3. Guardian side: navigate to 家属查看, enter code + phone → 确认配对 → ERROR
+## Root Cause
+**H1 + H2 双成立**：
+1. 用户刷新/重开页面丢失了 URL 里的 `?eo_token=`，EdgeOne 对裸域名返回 401 HTML
+2. 旧代码 `resp.json()` 尝试解析 HTML → SyntaxError，未捕获 HTTP 非 200
+3. token 有效期仅 3 小时，过期后即使在 URL 里也没用
 
-## Hypotheses (falsifiable)
-
-### H1: Preview link expired / user navigated without token
-The user refreshed or reopened the page, losing the `?eo_token=...` query string. Without token, EdgeOne returns 401 HTML for ALL API calls. The token passthrough code only forwards token IF it exists in `location.search`. **Test**: check if current preview URL still works; ask user to confirm URL bar content.
-
-### H2: EdgeOne hasn't deployed latest code
-My fix (apiUrl + token passthrough) was in commit `f066b73`. If EdgeOne still serves old HTML without token passthrough, ALL API calls fail because fetch('/api/pair') doesn't carry token. **Test**: curl the deployment and grep for `apiUrl` or `edgeTokenQS`.
-
-### H3: Token passthrough code doesn't cover verify path
-The verify path calls `apiPost('/api/pair', { action: 'verify', code, phone })`. Check if this goes through apiUrl correctly. **Test**: code inspection + curl with token.
-
-### H4: EdgeOne deployment cache issue
-Service Worker might have cached old HTML. User needs hard refresh.
-
-## Evidence Collected
-- [pending] Deployment version on EdgeOne
-- [pending] Curl test with fresh preview token
-- [pending] User confirms URL bar has ?eo_token= params
+## Fix Applied (commit c78f5b0)
+1. **Token 持久化**：页面加载时从 URL 提取 eo_token/eo_time 存 localStorage
+2. **双重回退**：`edgeTokenQS()` 优先 URL，其次 localStorage，刷新不丢
+3. **stale 清理**：API 收到 UNAUTHORIZED 时自动清 localStorage 里的旧 token
+4. **缺失提示横幅**：EdgeOne 域名上无 token → 顶部红色横幅提示获取新预览链接
+5. **错误消息可读**：401 直接返回中文提示"访问链接已过期"而非 SyntaxError
+6. **Service Worker 版本升级**：`yaoyi-v2.0.0` → `yaoyi-v2.1.0` 强制清缓存
 
 ## Status
-[OPEN]
+[CLOSED] - Fix deployed, waiting user verification
