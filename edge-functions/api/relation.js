@@ -180,6 +180,12 @@ async function redisCmd(env, ...args) {
   });
   const d = await resp.json();
   if (!resp.ok) throw new Error('Redis ' + resp.status + ': ' + (d && d.error || 'unknown'));
+  // Upstash REST 的 HGETALL 返回扁平数组，统一转成对象
+  if (args[0] === 'HGETALL' && Array.isArray(d.result)) {
+    const obj = {};
+    for (let i = 0; i < d.result.length; i += 2) obj[d.result[i]] = d.result[i + 1];
+    d.result = obj;
+  }
   return d;
 }
 

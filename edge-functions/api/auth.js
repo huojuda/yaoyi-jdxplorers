@@ -342,6 +342,14 @@ async function handleDiag(env, data) {
 
   const user = (await redisCmd(env, 'HGETALL', 'user:' + userId)).result || {};
   const fail = await redisCmd(env, 'GET', 'login:fail:' + phone);
+  // 底层探针：HGET 单字段直读（绕过 HGETALL 解析层），定位"数据在但读不出"还是"数据真丢"
+  const saltDirect = await redisCmd(env, 'HGET', 'user:' + userId, 'salt');
+  const existsKey = await redisCmd(env, 'EXISTS', 'user:' + userId);
+  let sessionProbe = null;
+  if (data.token) {
+    const s = await redisCmd(env, 'GET', 'session:' + data.token);
+    sessionProbe = s.result;
+  }
 
   return json(200, {
     phone,
@@ -352,6 +360,11 @@ async function handleDiag(env, data) {
     saltLen: (user.salt || '').length,
     hashLen: (user.passHash || '').length,
     failCount: parseInt(fail.result || '0', 10),
+    probe: {
+      saltHGET: saltDirect.result ? String(saltDirect.result).length : null,
+      keyExists: existsKey.result,
+      sessionUser: sessionProbe,
+    },
   });
 }
 
@@ -428,6 +441,12 @@ async function redisCmd(env, ...args) {
   // 不检查 resp.ok 会把 Upstash 错误（限流/配额/鉴权）当成"数据为空"处理，导致诡异状态
   if (!resp.ok) {
     throw new Error('Redis ' + resp.status + ': ' + (data && data.error || 'unknown'));
+  }
+  // Upstash REST 的 HGETALL 返回扁平数组 [f1,v1,f2,v2,...]，统一转成对象，避免调用处 .field 读到 undefined
+  if (args[0] === 'HGETALL' && Array.isArray(data.result)) {
+    const obj = {};
+    for (let i = 0; i < data.result.length; i += 2) obj[data.result[i]] = data.result[i + 1];
+    data.result = obj;
   }
   return data;
 }
