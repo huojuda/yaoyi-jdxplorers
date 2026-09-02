@@ -17,9 +17,10 @@ import json
 import os
 import random
 import time
+import hashlib
 import urllib.request
 import urllib.error
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
@@ -77,6 +78,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._handle_pair()
         elif path == "/api/events":
             self._handle_events_post()
+        elif path == "/api/auth":
+            self._handle_auth()
         else:
             self._send_json(404, {"error": "接口不存在"})
 
@@ -84,6 +87,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/api/events":
             self._handle_events_get()
+        elif path == "/api/auth":
+            self._handle_auth()
         else:
             super().do_GET()  # 静态文件
 
@@ -287,6 +292,132 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             print(f"[事件] GET 异常: {e}")
             self._send_json(500, {"error": str(e)})
 
+    # ---------- 账号系统：注册/登录/me/登出 ----------
+    def _handle_auth(self):
+        try:
+            # 合并 URL 参数与请求体（前端 apiPost 走 GET+query）
+            qs = parse_qs(urlparse(self.path).query)
+            data = {k: v[0] for k, v in qs.items()}
+            try:
+                body = self._read_body()
+                if body:
+                    data.update(json.loads(body))
+            except Exception:
+                pass
+
+            action = data.get("action", "")
+
+            # Authorization 头优先，其次 _auth 参数
+            auth_header = self.headers.get("Authorization", "").replace("Bearer ", "").strip()
+            token = auth_header or data.get("_auth", "")
+
+            if action == "register":
+                self._auth_register(data)
+            elif action == "login":
+                self._auth_login(data)
+            elif action == "me":
+                self._auth_me(token)
+            elif action == "logout":
+                if token:
+                    redis_cmd("DEL", "session:" + token)
+                self._send_json(200, {"ok": True})
+            else:
+                self._send_json(400, {"error": "未知操作，应为 register/login/me/logout"})
+
+        except Exception as e:
+            print(f"[账号] 异常: {e}")
+            self._send_json(500, {"error": str(e)})
+
+    def _auth_register(self, data):
+        phone = str(data.get("phone", "")).strip()
+        password = str(data.get("password", ""))
+        role = str(data.get("role", "")).strip()
+        display_name = str(data.get("displayName", "")).strip() or ("家人" if role == "caregiver" else "长辈")
+
+        if not (phone.startswith("1") and len(phone) == 11 and phone.isdigit()):
+            self._send_json(400, {"error": "请输入11位手机号"})
+            return
+        if len(password) < 6:
+            self._send_json(400, {"error": "密码至少6位"})
+            return
+        if role not in ("patient", "caregiver"):
+            self._send_json(400, {"error": "请选择角色：患者或家人"})
+            return
+
+        user_id = f"u_{int(time.time() * 1000)}{random.randint(1000, 9999)}"
+        nx = redis_cmd("SET", "user:phone:" + phone, user_id, "NX")
+        if nx.get("result") != "OK":
+            self._send_json(409, {"error": "该手机号已注册，请直接登录"})
+            return
+
+        salt = os.urandom(16).hex()
+        pass_hash = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), bytes.fromhex(salt), 10000
+        ).hex()
+
+        redis_cmd(
+            "HSET", f"user:{user_id}",
+            "phone", phone,
+            "passHash", pass_hash,
+            "salt", salt,
+            "role", role,
+            "displayName", display_name,
+            "createdAt", str(int(time.time() * 1000)),
+        )
+
+        token = os.urandom(32).hex()
+        redis_cmd("SET", "session:" + token, user_id, "EX", "604800")
+        print(f"[账号] 注册成功: {phone} ({role})")
+        self._send_json(200, {"token": token, "user": {"userId": user_id, "phone": phone, "role": role, "displayName": display_name}})
+
+    def _auth_login(self, data):
+        phone = str(data.get("phone", "")).strip()
+        password = str(data.get("password", ""))
+        if not phone or not password:
+            self._send_json(400, {"error": "请输入手机号和密码"})
+            return
+
+        fails = int((redis_cmd("GET", "login:fail:" + phone).get("result") or "0"))
+        if fails >= 5:
+            self._send_json(429, {"error": "失败次数过多，请10分钟后重试"})
+            return
+
+        user_id = redis_cmd("GET", "user:phone:" + phone).get("result")
+        if not user_id:
+            self._send_json(401, {"error": "手机号或密码错误"})
+            return
+
+        user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+        computed = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), bytes.fromhex(user.get("salt", "")), 10000
+        ).hex()
+
+        if computed != user.get("passHash"):
+            cnt = redis_cmd("INCR", "login:fail:" + phone).get("result", 1)
+            redis_cmd("EXPIRE", "login:fail:" + phone, "600")
+            remaining = 5 - int(cnt)
+            hint = f"（还可尝试{remaining}次）" if 0 < remaining <= 2 else ""
+            self._send_json(401, {"error": "手机号或密码错误" + hint})
+            return
+
+        redis_cmd("DEL", "login:fail:" + phone)
+        token = os.urandom(32).hex()
+        redis_cmd("SET", "session:" + token, user_id, "EX", "604800")
+        print(f"[账号] 登录成功: {phone}")
+        self._send_json(200, {"token": token, "user": {"userId": user_id, "phone": user.get("phone"), "role": user.get("role"), "displayName": user.get("displayName")}})
+
+    def _auth_me(self, token):
+        if not token:
+            self._send_json(401, {"error": "未登录"})
+            return
+        user_id = redis_cmd("GET", "session:" + token).get("result")
+        if not user_id:
+            self._send_json(401, {"error": "登录已过期，请重新登录"})
+            return
+        user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+        redis_cmd("EXPIRE", "session:" + token, "604800")
+        self._send_json(200, {"user": {"userId": user_id, "phone": user.get("phone"), "role": user.get("role"), "displayName": user.get("displayName")}})
+
     # ---------- 读取请求体 ----------
     def _read_body(self):
         content_length = int(self.headers.get("Content-Length", 0))
@@ -332,7 +463,7 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
 
 # ========== 启动 ==========
 def main():
-    server = HTTPServer(("0.0.0.0", PORT), YaoyiHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), YaoyiHandler)
     print("=" * 50)
     print("  药忆 H5 后端代理已启动")
     print(f"  模型: {MODEL_ID}")
