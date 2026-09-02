@@ -2104,13 +2104,14 @@ async function finishRecognition() {
     }
   } catch (e) {
     console.warn('真实API调用失败，降级为演示模式:', e);
-    // 降级：未启动服务器时用演示模式，保证页面可用
+    // 降级：未连接服务器时用演示模式，同时显示真实原因便于定位
     const drugKeys = Object.keys(DRUG_DB);
     const hash = simpleHash(currentImageData || '');
     const drugKey = drugKeys[hash % drugKeys.length];
     currentDrug = DRUG_DB[drugKey];
     renderResult(currentDrug);
-    showToast('演示模式（未连接服务器，结果随机）', 'warning');
+    const reason = String((e && e.message) || e || '未知错误');
+    showToast('演示模式（原因: ' + (reason.length > 70 ? reason.slice(0, 70) + '…' : reason) + '）', 'warning');
   }
 }
 
