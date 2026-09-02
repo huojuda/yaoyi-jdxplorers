@@ -946,6 +946,26 @@ body {
   margin-bottom: 12px;
   font-family: inherit;
 }
+
+/* 账号关联卡片 */
+.relation-card {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin: 10px 0;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.relation-card:active { background: #f5f5f5; }
+.relation-card .rc-avatar { font-size: 28px; margin-right: 14px; }
+.relation-card .rc-info { flex: 1; min-width: 0; }
+.relation-card .rc-name { font-size: 16px; font-weight: 600; }
+.relation-card .rc-phone { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+
 .pair-card .pc-input:focus {
   border-color: var(--primary);
   outline: none;
@@ -1856,18 +1876,20 @@ function showPage(pageId) {
 // 进入家属页：判断是否已配对
 // ============================================================
 function onEnterFamilyPage() {
-  // 区分角色：有监护人电话 = 监护人端，否则可能是患者或新用户
-  const familyId = localStorage.getItem(FAMILY_ID_KEY);
-  const guardianPhone = localStorage.getItem(GUARDIAN_PHONE_KEY);
-  if (familyId && guardianPhone) {
-    // 监护人已配对，直接进入监护人模式
-    enterGuardianMode();
-    familyDateOffset = 0;
+  const u = getCurrentUser();
+  if (u) {
+    // 已登录 → 走账号关联通道
+    loadRelationList(); // 异步，完成后自动渲染
+    renderRelationSection();
   } else {
-    // 未配对或患者端，显示配对界面
-    renderPairSection();
-    document.getElementById('guardian-panel-section').style.display = 'none';
-    document.getElementById('family-report-section').style.display = 'none';
+    // 未登录 → 旧配对码 + 登录引导
+    const familyId = localStorage.getItem(FAMILY_ID_KEY);
+    const guardianPhone = localStorage.getItem(GUARDIAN_PHONE_KEY);
+    if (familyId && guardianPhone) {
+      enterGuardianMode();
+    } else {
+      renderRelationSection();
+    }
   }
 }
 
@@ -3092,7 +3114,40 @@ async function showPairCodeModal() {
     '<div style="font-size:13px;color:var(--text-light);">配对码5分钟内有效</div>';
 }
 
+// ============================================================
+// 患者端：生成绑定码（账号关联通道）
+// ============================================================
+async function openPairModal() {
+  const u = getCurrentUser();
+  if (!u) { showToast('请先登录', 'warning'); showPage('auth'); return; }
+  if (u.role !== 'patient') { showToast('仅患者账号可生成绑定码', 'warning'); return; }
+
+  document.getElementById('pair-modal').style.display = 'flex';
+  document.getElementById('pair-modal-desc').textContent = '正在生成绑定码...';
+
+  const r = await apiGet('/api/relation', 'action=gen');
+  if (r.error) {
+    document.getElementById('pair-modal-desc').textContent = '生成失败: ' + r.error;
+    return;
+  }
+
+  let seconds = r.expiresIn || 120;
+  document.getElementById('pair-modal-desc').innerHTML =
+    `<div style="font-size:48px;font-weight:700;letter-spacing:12px;color:var(--primary);margin:12px 0;">${r.code}</div>
+     <div style="color:var(--text-secondary);">发给家人，${seconds}秒内有效</div>
+     <div style="margin-top:12px;font-size:13px;color:var(--text-secondary);">家人在"家属查看 → 输入绑定码"完成关联</div>`;
+  const timer = setInterval(() => {
+    seconds--;
+    if (seconds <= 0) { clearInterval(timer); closePairModal(); return; }
+    const el = document.querySelector('#pair-modal-desc > div:last-of-type');
+    if (el) el.textContent = `发给家人，${seconds}秒内有效`;
+  }, 1000);
+  // 关闭时清除计时器
+  window._pairTimer = timer;
+}
+
 function closePairModal() {
+  if (window._pairTimer) { clearInterval(window._pairTimer); window._pairTimer = null; }
   document.getElementById('pair-modal').style.display = 'none';
 }
 
@@ -3193,18 +3248,157 @@ async function sendHelpAlert() {
 // ============================================================
 // 监护人端：配对逻辑
 // ============================================================
-function renderPairSection() {
-  const container = document.getElementById('pair-section');
-  container.innerHTML = `
-    <div class="pair-card">
-      <div class="pc-title">🔒 设备配对</div>
-      <div class="pc-desc">请输入患者端显示的6位配对码，并填写您的联系电话</div>
-      <input class="pc-input" id="pair-code-input" maxlength="6" placeholder="6位配对码" inputmode="numeric">
-      <input class="pc-input" id="pair-phone-input" maxlength="11" placeholder="您的手机号" inputmode="numeric" style="font-size:18px;letter-spacing:2px;">
-      <button class="pc-btn" onclick="verifyPairCode()">确认配对</button>
-      <div class="pc-hint">配对后可实时接收服药通知和异常求助</div>
+// 账号关联（患者-监护人绑定）
+// ============================================================
+let relationList = []; // 当前账号已关联的对方列表
+let selectedPatientId = null; // 当前选中要查看的患者（家人端）
+
+// 加载关联列表（登录后调用）
+async function loadRelationList() {
+  const u = getCurrentUser();
+  if (!u) { relationList = []; return; }
+  const r = await apiGet('/api/relation', 'action=list');
+  if (r.error) { showToast('加载关联列表失败: ' + r.error, 'warning'); relationList = []; return; }
+  relationList = r.list || [];
+  selectedPatientId = null;
+  renderRelationSection();
+}
+
+// 渲染关联区域（家属页面顶部）
+function renderRelationSection() {
+  const u = getCurrentUser();
+  if (!u) {
+    // 未登录：显示原配对卡 + 登录引导
+    document.getElementById('pair-section').innerHTML = `
+      <div class="pair-card">
+        <div class="pc-title">🔒 设备配对</div>
+        <div class="pc-desc">请输入患者端显示的6位配对码，并填写您的联系电话</div>
+        <input class="pc-input" id="pair-code-input" maxlength="6" placeholder="6位配对码" inputmode="numeric">
+        <input class="pc-input" id="pair-phone-input" maxlength="11" placeholder="您的手机号" inputmode="numeric" style="font-size:18px;letter-spacing:2px;">
+        <button class="pc-btn" onclick="verifyPairCode()">确认配对</button>
+        <div class="pc-hint">配对后可实时接收服药通知和异常求助</div>
+        <div class="pc-hint" style="margin-top:12px;color:var(--primary);">💡 已有账号？<a onclick="showPage('auth')" style="cursor:pointer;text-decoration:underline;">登录后用绑定码关联更方便</a></div>
+      </div>`;
+    document.getElementById('guardian-panel-section').style.display = 'none';
+    document.getElementById('family-report-section').style.display = 'none';
+    return;
+  }
+
+  if (u.role === 'caregiver') {
+    // 家人账号：显示已关联长辈 + 绑定新长辈
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div class="pc-title" style="font-size:18px;">👨‍👩‍👧 我的长辈</div>
+      <button class="btn btn-primary" style="padding:8px 16px;font-size:14px;" onclick="showBindCodeInput()">+ 绑定新长辈</button>
+    </div>`;
+    if (relationList.length === 0) {
+      html += `<div class="pair-card" style="text-align:center;">
+        <div class="pc-desc" style="color:var(--text-secondary);">还没有关联长辈</div>
+        <button class="btn btn-primary" onclick="showBindCodeInput()" style="margin-top:12px;">输入长辈的绑定码</button>
+        <div class="pc-hint" style="margin-top:8px;">让长辈在"首页 → 设备配对"里生成6位绑定码发给你</div>
+      </div>`;
+    } else {
+      relationList.forEach((p, i) => {
+        const active = p.userId === selectedPatientId ? ' style="border-color:var(--primary);background:#f0faf0;"' : '';
+        html += `<div class="relation-card"${active} onclick="selectPatient('${p.userId}')">
+          <div class="rc-avatar">👴</div>
+          <div class="rc-info">
+            <div class="rc-name">${p.displayName || '长辈'}</div>
+            <div class="rc-phone">${p.phone || ''}</div>
+          </div>
+          <div class="rc-action" onclick="event.stopPropagation();unbindRelation('${p.userId}')" style="color:#e74c3c;font-size:14px;">解绑</div>
+        </div>`;
+        if (i === 0 && !selectedPatientId) selectedPatientId = p.userId;
+      });
+    }
+    document.getElementById('pair-section').innerHTML = html;
+
+    if (relationList.length > 0) {
+      // 已有关联 → 显示守护面板 + 日报
+      document.getElementById('guardian-panel-section').style.display = 'block';
+      document.getElementById('family-report-section').style.display = 'block';
+      startGuardianPolling();
+      renderFamilyView();
+    } else {
+      document.getElementById('guardian-panel-section').style.display = 'none';
+      document.getElementById('family-report-section').style.display = 'none';
+    }
+  } else {
+    // 患者账号：显示我的家人列表 + 生成绑定码
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div class="pc-title" style="font-size:18px;">👨‍👩‍👧 我的家人</div>
+      <button class="btn btn-primary" style="padding:8px 16px;font-size:14px;" onclick="openPairModal()">🔗 生成绑定码</button>
+    </div>`;
+    if (relationList.length === 0) {
+      html += `<div class="pair-card" style="text-align:center;">
+        <div class="pc-desc" style="color:var(--text-secondary);">还没有关联家人</div>
+        <button class="btn btn-primary" onclick="openPairModal()" style="margin-top:12px;">🔗 生成绑定码</button>
+        <div class="pc-hint" style="margin-top:8px;">把6位绑定码发给家人即可完成关联</div>
+      </div>`;
+    } else {
+      relationList.forEach(p => {
+        html += `<div class="relation-card">
+          <div class="rc-avatar">👩‍💻</div>
+          <div class="rc-info">
+            <div class="rc-name">${p.displayName || '家人'}</div>
+            <div class="rc-phone">${p.phone || ''}</div>
+          </div>
+          <div class="rc-action" onclick="unbindRelation('${p.userId}')" style="color:#e74c3c;font-size:14px;">解绑</div>
+        </div>`;
+      });
+    }
+    document.getElementById('pair-section').innerHTML = html;
+    // 患者端不显示守护面板和日报
+    document.getElementById('guardian-panel-section').style.display = 'none';
+    document.getElementById('family-report-section').style.display = 'none';
+  }
+}
+
+// 家人端：输入绑定码弹窗
+function showBindCodeInput() {
+  const overlay = document.createElement('div');
+  overlay.className = 'alert-overlay';
+  overlay.innerHTML = `<div class="alert-popup">
+    <div class="ap-icon">🔗</div>
+    <div class="ap-title">输入绑定码</div>
+    <div class="ap-desc">请输入长辈发给你的6位绑定码</div>
+    <input class="pc-input" id="bind-code-input" maxlength="6" placeholder="6位绑定码" inputmode="numeric" style="text-align:center;font-size:28px;letter-spacing:8px;margin:12px 0;">
+    <div class="ap-btns">
+      <button class="ap-btn" onclick="this.closest('.alert-overlay').remove()">取消</button>
+      <button class="ap-btn ap-btn-primary" onclick="submitBindCode()" style="background:var(--primary);color:#fff;border-radius:12px;">确认绑定</button>
     </div>
-  `;
+  </div>`;
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('bind-code-input').focus(), 50);
+}
+
+async function submitBindCode() {
+  const code = document.getElementById('bind-code-input').value.trim();
+  if (!/^\d{6}$/.test(code)) { showToast('请输入6位绑定码', 'warning'); return; }
+  const r = await apiGet('/api/relation', 'action=bind&code=' + code);
+  if (r.error) { showToast(r.error, 'danger'); return; }
+  document.querySelector('.alert-overlay').remove();
+  showToast(r.already ? '已关联过' : '绑定成功！', 'success');
+  await loadRelationList();
+}
+
+// 家人端：选中某个长辈查看
+function selectPatient(pid) {
+  selectedPatientId = pid;
+  renderRelationSection();
+}
+
+// 解绑
+async function unbindRelation(targetId) {
+  if (!confirm('确定要解绑吗？')) return;
+  const r = await apiGet('/api/relation', 'action=unbind&targetUserId=' + targetId);
+  if (r.error) { showToast(r.error, 'danger'); return; }
+  showToast('已解绑', 'info');
+  await loadRelationList();
+}
+
+// ============================================================
+function renderPairSection() {
+  renderRelationSection();
 }
 
 async function verifyPairCode() {

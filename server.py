@@ -16,6 +16,7 @@
 import json
 import os
 import random
+import re
 import time
 import hashlib
 import urllib.request
@@ -80,6 +81,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._handle_events_post()
         elif path == "/api/auth":
             self._handle_auth()
+        elif path == "/api/relation":
+            self._handle_relation()
         else:
             self._send_json(404, {"error": "接口不存在"})
 
@@ -89,6 +92,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._handle_events_get()
         elif path == "/api/auth":
             self._handle_auth()
+        elif path == "/api/relation":
+            self._handle_relation()
         else:
             super().do_GET()  # 静态文件
 
@@ -621,6 +626,102 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
+
+    # ---------- 账号关联 ----------
+    def _handle_relation(self):
+        try:
+            qs = parse_qs(urlparse(self.path).query)
+            data = {k: v[0] for k, v in qs.items()}
+            try:
+                body = self._read_body()
+                if body:
+                    data.update(json.loads(body))
+            except Exception:
+                pass
+
+            action = data.get("action", "")
+            auth_header = self.headers.get("Authorization", "").replace("Bearer ", "").strip()
+            token = auth_header or data.get("_auth", "")
+            if not token:
+                self._send_json(401, {"error": "请先登录"})
+                return
+
+            user_id = redis_cmd("GET", "session:" + token).get("result")
+            if not user_id:
+                self._send_json(401, {"error": "登录已过期"})
+                return
+
+            if action == "gen":
+                code = str(random.randint(100000, 999999))
+                user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+                redis_cmd("SET", f"bindCode:{code}", json.dumps({
+                    "userId": user_id, "role": user.get("role"), "createdAt": int(time.time() * 1000)
+                }), "EX", "120")
+                self._send_json(200, {"code": code, "expiresIn": 120, "role": user.get("role"), "displayName": user.get("displayName")})
+
+            elif action == "bind":
+                code = str(data.get("code", "")).strip()
+                if not re.match(r"^\d{6}$", code):
+                    self._send_json(400, {"error": "请输入6位绑定码"})
+                    return
+                raw = redis_cmd("GET", f"bindCode:{code}").get("result")
+                if not raw:
+                    self._send_json(404, {"error": "绑定码无效或已过期"})
+                    return
+                info = json.loads(raw)
+                patient_id = info["userId"]
+                if patient_id == user_id:
+                    self._send_json(400, {"error": "不能绑定自己"})
+                    return
+                caregiver = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+                patient = redis_cmd("HGETALL", f"user:{patient_id}").get("result") or {}
+                if caregiver.get("role") != "caregiver":
+                    self._send_json(403, {"error": "仅家人账号可发起绑定"})
+                    return
+                if patient.get("role") != "patient":
+                    self._send_json(403, {"error": "对方不是患者账号"})
+                    return
+                already = redis_cmd("SISMEMBER", f"relation:{user_id}", patient_id).get("result")
+                if already:
+                    redis_cmd("DEL", f"bindCode:{code}")
+                    self._send_json(200, {"ok": True, "already": True})
+                    return
+                redis_cmd("SADD", f"relation:{user_id}", patient_id)
+                redis_cmd("SADD", f"relation:{patient_id}", user_id)
+                redis_cmd("DEL", f"bindCode:{code}")
+                self._send_json(200, {"ok": True, "patient": {
+                    "userId": patient_id, "displayName": patient.get("displayName"),
+                    "phone": patient.get("phone"), "role": patient.get("role"),
+                }})
+
+            elif action == "list":
+                members = redis_cmd("SMEMBERS", f"relation:{user_id}").get("result") or []
+                results = []
+                for mid in members:
+                    u = redis_cmd("HGETALL", f"user:{mid}").get("result") or {}
+                    if u:
+                        results.append({"userId": mid, "displayName": u.get("displayName"),
+                                        "phone": u.get("phone"), "role": u.get("role")})
+                self._send_json(200, {"list": results})
+
+            elif action == "unbind":
+                target = str(data.get("targetUserId", "")).strip()
+                if not target:
+                    self._send_json(400, {"error": "缺少 targetUserId"})
+                    return
+                redis_cmd("SREM", f"relation:{user_id}", target)
+                redis_cmd("SREM", f"relation:{target}", user_id)
+                self._send_json(200, {"ok": True})
+
+            elif action == "pending":
+                self._send_json(200, {"pending": []})
+
+            else:
+                self._send_json(400, {"error": "action 应为 gen/bind/list/unbind/pending"})
+
+        except Exception as e:
+            print(f"[关联] 异常: {e}")
+            self._send_json(500, {"error": str(e)})
 
     def log_message(self, fmt, *args):
         # 简化日志，只打印非静态资源的请求
