@@ -110,6 +110,49 @@ async function handleRegister(env, data) {
   const nx = await redisCmd(env, 'SET', 'user:phone:' + phone, userId, 'NX');
   if (nx.result !== 'OK') {
     await redisCmd(env, 'DEL', 'user:' + userId); // 清理本次写入的孤儿数据
+
+    // 手机号已被占用：区分完整账号与损坏账号
+    const existingId = (await redisCmd(env, 'GET', 'user:phone:' + phone)).result;
+    const existing = existingId ? ((await redisCmd(env, 'HGETALL', 'user:' + existingId)).result || {}) : {};
+
+    if (!existing.salt || !existing.passHash) {
+      // 损坏账号（无密码数据，无法登录）：用本次提交的数据整体重建
+      await redisCmd(env, 'HSET', 'user:' + existingId,
+        'phone', phone,
+        'passHash', passHash,
+        'salt', salt,
+        'role', role,
+        'displayName', displayName
+      );
+      const check = await redisCmd(env, 'HGET', 'user:' + existingId, 'salt');
+      if (!check.result) {
+        return json(500, { error: '数据写入验证失败（Redis异常），请稍后重试' });
+      }
+      const token = randomHex(32);
+      await redisCmd(env, 'SET', 'session:' + token, existingId, 'EX', String(SESSION_TTL));
+      return json(200, {
+        token,
+        repaired: true,
+        user: { userId: existingId, phone, role, displayName },
+      });
+    }
+
+    if (!existing.role || !existing.displayName) {
+      // 密码正常但身份字段缺失：验证密码后补全身份（不动密码）
+      const computed = await pbkdf2(password, existing.salt);
+      if (computed !== existing.passHash) {
+        return json(401, { error: '该手机号已注册且密码不匹配，无法修正身份，请用正确密码登录' });
+      }
+      await redisCmd(env, 'HSET', 'user:' + existingId, 'role', role, 'displayName', displayName);
+      const token = randomHex(32);
+      await redisCmd(env, 'SET', 'session:' + token, existingId, 'EX', String(SESSION_TTL));
+      return json(200, {
+        token,
+        repaired: true,
+        user: { userId: existingId, phone, role, displayName },
+      });
+    }
+
     return json(409, { error: '该手机号已注册，请直接登录' });
   }
 
@@ -151,6 +194,15 @@ async function handleLogin(env, data) {
     const salt = randomHex(16);
     const passHash = await pbkdf2(password, salt);
     await redisCmd(env, 'HSET', 'user:' + userId, 'passHash', passHash, 'salt', salt);
+    // 身份字段缺失时一并补默认值（真实身份可通过"重新注册"修正）
+    if (!user.role) {
+      await redisCmd(env, 'HSET', 'user:' + userId, 'role', 'patient');
+      user.role = 'patient';
+    }
+    if (!user.displayName) {
+      await redisCmd(env, 'HSET', 'user:' + userId, 'displayName', '长辈');
+      user.displayName = '长辈';
+    }
     await redisCmd(env, 'DEL', 'login:fail:' + phone);
 
     // 写入后回读验证，防止静默丢失

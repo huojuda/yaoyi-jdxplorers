@@ -420,6 +420,45 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         nx = redis_cmd("SET", "user:phone:" + phone, user_id, "NX")
         if nx.get("result") != "OK":
             redis_cmd("DEL", f"user:{user_id}")  # 清理本次写入的孤儿数据
+
+            # 手机号已被占用：区分完整账号与损坏账号
+            existing_id = redis_cmd("GET", "user:phone:" + phone).get("result")
+            existing = redis_cmd("HGETALL", f"user:{existing_id}").get("result") or {} if existing_id else {}
+
+            if not existing.get("salt") or not existing.get("passHash"):
+                # 损坏账号（无密码数据，无法登录）：用本次提交的数据整体重建
+                redis_cmd(
+                    "HSET", f"user:{existing_id}",
+                    "phone", phone,
+                    "passHash", pass_hash,
+                    "salt", salt,
+                    "role", role,
+                    "displayName", display_name,
+                )
+                if not redis_cmd("HGET", f"user:{existing_id}", "salt").get("result"):
+                    self._send_json(500, {"error": "数据写入验证失败（Redis异常），请稍后重试"})
+                    return
+                token = os.urandom(32).hex()
+                redis_cmd("SET", "session:" + token, existing_id, "EX", "604800")
+                print(f"[账号] 损坏账号重建: {phone} ({role})")
+                self._send_json(200, {"token": token, "repaired": True, "user": {"userId": existing_id, "phone": phone, "role": role, "displayName": display_name}})
+                return
+
+            if not existing.get("role") or not existing.get("displayName"):
+                # 密码正常但身份字段缺失：验证密码后补全身份（不动密码）
+                computed = hashlib.pbkdf2_hmac(
+                    "sha256", password.encode(), bytes.fromhex(existing["salt"]), 10000
+                ).hex()
+                if computed != existing["passHash"]:
+                    self._send_json(401, {"error": "该手机号已注册且密码不匹配，无法修正身份，请用正确密码登录"})
+                    return
+                redis_cmd("HSET", f"user:{existing_id}", "role", role, "displayName", display_name)
+                token = os.urandom(32).hex()
+                redis_cmd("SET", "session:" + token, existing_id, "EX", "604800")
+                print(f"[账号] 身份字段补全: {phone} ({role})")
+                self._send_json(200, {"token": token, "repaired": True, "user": {"userId": existing_id, "phone": phone, "role": role, "displayName": display_name}})
+                return
+
             self._send_json(409, {"error": "该手机号已注册，请直接登录"})
             return
 

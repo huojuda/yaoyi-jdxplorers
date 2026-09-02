@@ -1142,7 +1142,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.1.0
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.1.1
   </div>
 </div>
 
@@ -3008,7 +3008,7 @@ async function handleAuthSubmit() {
   }
 
   setAuthSession(r.token, r.user);
-  showToast(r.repaired ? '账号已自动修复，请牢记当前密码' : '欢迎，' + r.user.displayName, 'success');
+  showToast(r.repaired ? ('检测到异常账号数据，已按本次提交修复，身份：' + (r.user.role === 'caregiver' ? '家人' : '患者')) : '欢迎，' + r.user.displayName, 'success');
   showPage('home');
 }
 
