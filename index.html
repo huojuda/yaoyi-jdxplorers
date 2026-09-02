@@ -2577,12 +2577,54 @@ function getFamilyId() {
   return localStorage.getItem(FAMILY_ID_KEY) || '';
 }
 
-// ---- 拼接当前页面 query string（EdgeOne 预览链接 token 需要透传给 API） ----
+// ---- EdgeOne 预览链接 token 持久化（解决刷新丢失、过期提示等问题） ----
+const EO_TOKEN_KEY = 'yaoyi_eo_token';
+const EO_TIME_KEY = 'yaoyi_eo_time';
+(function saveEdgeTokenFromURL() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('eo_token')) {
+    localStorage.setItem(EO_TOKEN_KEY, params.get('eo_token'));
+  }
+  if (params.get('eo_time')) {
+    localStorage.setItem(EO_TIME_KEY, params.get('eo_time'));
+  }
+})();
 function edgeTokenQS() {
-  const qs = location.search;
-  if (qs && qs.includes('eo_token')) return qs;
-  return '';
+  // 优先 URL 里的 token，其次 localStorage（防止刷新丢失）
+  const params = new URLSearchParams();
+  const urlToken = new URLSearchParams(location.search).get('eo_token');
+  const urlTime = new URLSearchParams(location.search).get('eo_time');
+  if (urlToken) {
+    params.set('eo_token', urlToken);
+  } else if (localStorage.getItem(EO_TOKEN_KEY)) {
+    params.set('eo_token', localStorage.getItem(EO_TOKEN_KEY));
+  }
+  if (urlTime) {
+    params.set('eo_time', urlTime);
+  } else if (localStorage.getItem(EO_TIME_KEY)) {
+    params.set('eo_time', localStorage.getItem(EO_TIME_KEY));
+  }
+  const result = params.toString();
+  return result;  // 返回 "eo_token=xxx&eo_time=yyy" 或 ""
 }
+function hasEdgeToken() {
+  return !!edgeTokenQS();
+}
+// 如果在 EdgeOne 域名上但没有 token，显示横幅
+(function showMissingTokenBanner() {
+  const isEdgeOne = location.hostname.includes('edgeone');
+  if (!isEdgeOne) return;
+  if (hasEdgeToken()) return;
+  // 等 DOM ready
+  document.addEventListener('DOMContentLoaded', function() {
+    const banner = document.createElement('div');
+    banner.id = 'eo-token-banner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:12px;z-index:9999;font-size:14px;text-align:center;font-family:sans-serif;';
+    banner.innerHTML = '⚠️ 当前链接无效，请从 EdgeOne 控制台点击"预览"按钮重新获取访问链接后打开';
+    document.body.insertBefore(banner, document.body.firstChild);
+  });
+})();
+
 function apiUrl(path, extraQS = '') {
   let url = API_BASE + path;
   const baseIdx = path.indexOf('?');
@@ -2594,7 +2636,7 @@ function apiUrl(path, extraQS = '') {
   const parts = [];
   if (existingQS) parts.push(existingQS);
   const tokenQS = edgeTokenQS();
-  if (tokenQS) parts.push(tokenQS.startsWith('?') ? tokenQS.slice(1) : tokenQS);
+  if (tokenQS) parts.push(tokenQS);  // 已经是 "key=val&key2=val2" 格式，不需要再去 ?
   if (extraQS) parts.push(extraQS.startsWith('?') ? extraQS.slice(1) : extraQS);
   if (parts.length) url += '?' + parts.join('&');
   return url;
@@ -2610,7 +2652,13 @@ async function apiPost(path, body, extraQS = '') {
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
-      return { error: 'HTTP ' + resp.status + (text.includes('UNAUTHORIZED') ? '（预览链接已过期，请重新从控制台点击"预览"获取新链接）' : '') };
+      if (text.includes('UNAUTHORIZED')) {
+        // token 已过期，清掉让横幅显示
+        localStorage.removeItem(EO_TOKEN_KEY);
+        localStorage.removeItem(EO_TIME_KEY);
+        return { error: '访问链接已过期（3小时有效期），请从 EdgeOne 控制台点击"预览"按钮重新获取链接' };
+      }
+      return { error: 'HTTP ' + resp.status };
     }
     return await resp.json();
   } catch (e) {
@@ -2625,7 +2673,12 @@ async function apiGet(path, extraQS = '') {
     const resp = await fetch(apiUrl(path, extraQS));
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
-      return { error: 'HTTP ' + resp.status + (text.includes('UNAUTHORIZED') ? '（预览链接已过期，请重新从控制台点击"预览"获取新链接）' : '') };
+      if (text.includes('UNAUTHORIZED')) {
+        localStorage.removeItem(EO_TOKEN_KEY);
+        localStorage.removeItem(EO_TIME_KEY);
+        return { error: '访问链接已过期（3小时有效期），请从 EdgeOne 控制台点击"预览"按钮重新获取链接' };
+      }
+      return { error: 'HTTP ' + resp.status };
     }
     return await resp.json();
   } catch (e) {

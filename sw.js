@@ -5,7 +5,7 @@
 //   - 所有 /api/* 请求 → 纯网络，永不缓存（识别/配对/事件均需实时）
 // 版本更新：改 CACHE_NAME 版本号即可自动清理旧缓存
 
-const CACHE_NAME = 'yaoyi-v2.0.0';
+const CACHE_NAME = 'yaoyi-v2.1.0';
 
 // 应用外壳：单文件 SPA，CSS/JS 已内嵌进 index.html
 const APP_SHELL = [
