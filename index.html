@@ -1142,7 +1142,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.0.4
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.1.0
   </div>
 </div>
 
@@ -1885,14 +1885,8 @@ function onEnterFamilyPage() {
     document.getElementById('family-report-section').style.display = 'none';
     loadRelationList();
   } else {
-    // 未登录 → 旧配对码 + 登录引导
-    const familyId = localStorage.getItem(FAMILY_ID_KEY);
-    const guardianPhone = localStorage.getItem(GUARDIAN_PHONE_KEY);
-    if (familyId && guardianPhone) {
-      enterGuardianMode();
-    } else {
-      renderRelationSection();
-    }
+    // 未登录 → 登录引导
+    renderRelationSection();
   }
 }
 
@@ -1964,6 +1958,8 @@ function renderTodayMeds() {
 // ============================================================
 function startCamera() {
   try {
+    // 防御：上一次摄像头流未释放时先清理，避免二次进入黑屏/无响应
+    if (mediaStream) stopCamera();
     showPage('camera');
     // 关键修复：先显示相册选择（确保有反应），再后台尝试摄像头
     showFallback();
@@ -2630,17 +2626,20 @@ function renderFamilyView() {
   // 禁用"后一天"按钮（不能看未来）
   document.getElementById('family-next-btn').disabled = (familyDateOffset >= 0);
 
-  const records = loadRecords().filter(r => r.date === dateStr);
-  const dayRecords = records.sort((a, b) => b.timestamp - a.timestamp);
+  // 家属端日报数据源：服务端事件（按选中的患者过滤）
+  const dayRecords = remoteEvents
+    .filter(e => e.type === 'medication' && e.date === dateStr && (!selectedPatientId || e.patientId === selectedPatientId))
+    .map(e => ({ drugId: e.drugId, drugName: e.drugName, time: e.time, timestamp: e.timestamp, date: e.date }))
+    .sort((a, b) => b.timestamp - a.timestamp);
 
   // ---- 概览统计 ----
   const statsContainer = document.getElementById('family-stats');
-  const uniqueDrugs = new Set(dayRecords.map(r => r.drugId));
-  const drugNames = Array.from(uniqueDrugs).map(id => getDrugNameById(id)).filter(Boolean);
+  const uniqueDrugs = new Set(dayRecords.map(r => r.drugId || r.drugName));
+  const drugNames = Array.from(uniqueDrugs).map(id => getDrugNameById(id) || id).filter(Boolean);
   if (isAlcoholToday() && isToday) drugNames.push('酒精');
   const interactionRules = drugNames.length >= 2 ? checkInteractions(drugNames) : [];
   const dangerCount = interactionRules.filter(r => r.severity === 'danger').length;
-  const missed = isToday ? checkMissedDose(loadRecords(), dateStr) : []; // 漏服只对今天有意义
+  const missed = isToday ? checkMissedDose(dayRecords, dateStr) : []; // 漏服只对今天有意义
 
   let statsHtml = '';
   statsHtml += `<div class="stat-card success">
@@ -2700,12 +2699,13 @@ function renderFamilyView() {
     let html = '';
     dayRecords.forEach(r => {
       const drug = DRUG_DB[r.drugId];
-      if (!drug) return;
+      const name = drug ? drug.name : (r.drugName || '未知药品');
+      const desc = drug ? (drug.plain_class + ' · ' + drug.frequency) : '';
       html += `<div class="timeline-item">
         <div class="ti-time">${r.time}</div>
         <div class="ti-body">
-          <div class="ti-name">${drug.name}</div>
-          <div class="ti-desc">${drug.plain_class} · ${drug.frequency}</div>
+          <div class="ti-name">${name}</div>
+          <div class="ti-desc">${desc}</div>
         </div>
       </div>`;
     });
@@ -2807,14 +2807,7 @@ function showToast(message, type) {
 
 // ---- 配置 ----
 const API_BASE = ''; // 同源，Vercel/本地 server.py 自动路由
-const FAMILY_ID_KEY = 'yaoyi_family_id';
-const GUARDIAN_PHONE_KEY = 'yaoyi_guardian_phone';
 const MONITOR_DURATION = 30 * 60 * 1000; // 30分钟（毫秒）
-
-// ---- 获取本机 familyId（患者端用） ----
-function getFamilyId() {
-  return localStorage.getItem(FAMILY_ID_KEY) || '';
-}
 
 // ---- EdgeOne 预览链接 token 持久化（解决刷新丢失、过期提示等问题） ----
 const EO_TOKEN_KEY = 'yaoyi_eo_token';
@@ -2916,6 +2909,10 @@ function onAccountTap() {
     if (confirm(user.displayName + '（' + (user.role === 'caregiver' ? '家人' : '患者') + '）\n确定退出登录吗？')) {
       apiPost('/api/auth', { action: 'logout' });
       clearAuthSession();
+      stopGuardianPolling(); // 停止家属端轮询
+      remoteEvents = [];
+      guardianFirstPollDone = false;
+      lastEventTs = 0;
       showToast('已退出登录', 'info');
     }
   } else {
@@ -3146,17 +3143,18 @@ function closePairModal() {
 // 患者端：上报服药事件
 // ============================================================
 async function reportMedicationEvent(drug) {
-  const familyId = getFamilyId();
-  if (!familyId) {
-    // 未配对，仅本地记录（同设备演示模式）
+  const u = getCurrentUser();
+  if (!u) {
+    // 未登录：仅本地记录
     return;
   }
   const now = new Date();
   const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   await apiPost('/api/events', {
-    familyId: familyId,
     type: 'medication',
+    drugId: drug.id,
     drugName: drug.name,
+    date: getTodayStr(),
     time: timeStr,
   });
 }
@@ -3193,14 +3191,10 @@ function endMonitor(autoEnd) {
   }
 
   // 自动结束时上报 monitor_end 事件
-  if (autoEnd) {
-    const familyId = getFamilyId();
-    if (familyId) {
-      apiPost('/api/events', {
-        familyId: familyId,
-        type: 'monitor_end',
-      });
-    }
+  if (autoEnd && getCurrentUser()) {
+    apiPost('/api/events', {
+      type: 'monitor_end',
+    });
   }
 }
 
@@ -3217,21 +3211,18 @@ async function sendHelpAlert() {
     speak('已经通知您的家人了，请保持冷静，家人马上就来。');
   }
 
-  const familyId = getFamilyId();
-  if (!familyId) {
-    // 未配对（同设备演示模式）：用 localStorage 事件通知同设备其他标签页
+  if (!getCurrentUser()) {
+    // 未登录（同设备演示模式）：用 localStorage 事件通知同设备其他标签页
     const evt = {
       type: 'alert',
       timestamp: Date.now(),
       time: new Date().toTimeString().slice(0, 5),
     };
-    // 触发 storage 事件让监护人标签页感知
     localStorage.setItem('yaoyi_local_alert', JSON.stringify(evt));
     return;
   }
 
   await apiPost('/api/events', {
-    familyId: familyId,
     type: 'alert',
   });
 }
@@ -3270,16 +3261,13 @@ async function loadRelationList() {
 function renderRelationSection() {
   const u = getCurrentUser();
   if (!u) {
-    // 未登录：显示原配对卡 + 登录引导
+    // 未登录：登录引导（绑定码通道需要账号，避免误入旧配对通道）
     document.getElementById('pair-section').innerHTML = `
-      <div class="pair-card">
-        <div class="pc-title">🔒 设备配对</div>
-        <div class="pc-desc">请输入患者端显示的6位配对码，并填写您的联系电话</div>
-        <input class="pc-input" id="pair-code-input" maxlength="6" placeholder="6位配对码" inputmode="numeric">
-        <input class="pc-input" id="pair-phone-input" maxlength="11" placeholder="您的手机号" inputmode="numeric" style="font-size:18px;letter-spacing:2px;">
-        <button class="pc-btn" onclick="verifyPairCode()">确认配对</button>
-        <div class="pc-hint">配对后可实时接收服药通知和异常求助</div>
-        <div class="pc-hint" style="margin-top:12px;color:var(--primary);">💡 已有账号？<a onclick="showPage('auth')" style="cursor:pointer;text-decoration:underline;">登录后用绑定码关联更方便</a></div>
+      <div class="pair-card" style="text-align:center;">
+        <div class="pc-title">👨‍👩‍👧 家人绑定</div>
+        <div class="pc-desc">登录后即可用6位绑定码关联家人：<br>长辈（患者账号）生成绑定码 → 家人（家人账号）输入绑定码</div>
+        <button class="btn btn-primary" onclick="showPage('auth')" style="margin-top:14px;">登录 / 注册</button>
+        <div class="pc-hint" style="margin-top:12px;">关联后可远程查看用药日报、接收服药通知和紧急求助</div>
       </div>`;
     document.getElementById('guardian-panel-section').style.display = 'none';
     document.getElementById('family-report-section').style.display = 'none';
@@ -3399,60 +3387,19 @@ async function unbindRelation(targetId) {
 }
 
 // ============================================================
-function renderPairSection() {
-  renderRelationSection();
-}
-
-async function verifyPairCode() {
-  const code = document.getElementById('pair-code-input').value.trim();
-  const phone = document.getElementById('pair-phone-input').value.trim();
-
-  if (!code || code.length !== 6) {
-    showToast('请输入6位配对码', 'warning');
-    return;
-  }
-  if (!phone || phone.length < 7) {
-    showToast('请输入有效联系电话', 'warning');
-    return;
-  }
-
-  const result = await apiPost('/api/pair', { action: 'verify', code, phone });
-  if (result.error) {
-    showToast(result.error, 'danger');
-    return;
-  }
-
-  // 保存配对信息
-  localStorage.setItem(FAMILY_ID_KEY, result.familyId);
-  localStorage.setItem(GUARDIAN_PHONE_KEY, result.phone);
-  showToast('配对成功！', 'success');
-  enterGuardianMode();
-}
-
-// 进入监护人模式（显示面板 + 日报 + 启动轮询）
-function enterGuardianMode() {
-  document.getElementById('pair-section').innerHTML = '';
-  document.getElementById('guardian-panel-section').style.display = 'block';
-  document.getElementById('family-report-section').style.display = 'block';
-
-  // 启动轮询
-  startGuardianPolling();
-  // 渲染日报
-  renderFamilyView();
-}
-
-// ============================================================
-// 监护人端：轮询 + 事件处理
+// 监护人端：轮询 + 事件处理（账号关联体系：登录态轮询，聚合关联患者事件）
 // ============================================================
 let guardianPollTimer = null;
 let lastEventTs = 0;
-let guardianPhone = '';
 let currentAlertTs = 0;
+let currentAlertPatientId = null; // 当前求助弹窗对应的患者
+let guardianFirstPollDone = false; // 首次全量拉取不弹历史通知
+let remoteEvents = []; // 服务端事件缓存（供家属日报聚合）
+let patientPhones = {}; // 患者 userId → 电话
 
 function startGuardianPolling() {
-  const familyId = localStorage.getItem(FAMILY_ID_KEY);
-  guardianPhone = localStorage.getItem(GUARDIAN_PHONE_KEY) || '';
-  if (!familyId) return;
+  const u = getCurrentUser();
+  if (!u) return;
 
   // 立即拉取一次
   pollEvents();
@@ -3470,43 +3417,54 @@ function stopGuardianPolling() {
 }
 
 async function pollEvents() {
-  const familyId = localStorage.getItem(FAMILY_ID_KEY);
-  if (!familyId) return;
+  const u = getCurrentUser();
+  if (!u) return;
 
-  const result = await apiGet('/api/events?familyId=' + encodeURIComponent(familyId) + '&after=' + lastEventTs);
+  const result = await apiGet('/api/events', 'after=' + lastEventTs);
   if (result.error) return;
 
   const events = result.events || [];
+  patientPhones = result.patientPhones || patientPhones;
+
   if (events.length > 0) {
-    // 更新最后时间戳
     lastEventTs = events[events.length - 1].timestamp;
-    // 逐条处理
-    events.forEach(handleGuardianEvent);
+    remoteEvents = remoteEvents.concat(events);
     // 刷新事件列表 UI
     renderGuardianEventList(events);
+    if (guardianFirstPollDone) {
+      // 只有增量事件才触发通知/弹窗
+      events.forEach(handleGuardianEvent);
+      if (events.some(e => e.type === 'medication')) renderFamilyView();
+    }
+  }
+  if (!guardianFirstPollDone) {
+    guardianFirstPollDone = true;
+    renderFamilyView();
   }
 }
 
 // 处理单条事件
 function handleGuardianEvent(evt) {
+  const who = evt.patientName ? '（' + evt.patientName + '）' : '';
   if (evt.type === 'medication') {
     // 服药通知：更新状态为"监视中"
     const dot = document.getElementById('gp-dot');
     const title = document.getElementById('gp-title');
     dot.className = 'gp-dot monitoring';
-    title.textContent = '监视中 · ' + (evt.drugName || '药品');
+    title.textContent = '监视中 · ' + (evt.drugName || '药品') + who;
 
     // 如果浏览器支持通知，显示系统通知
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('药忆 · 家人已服药', {
-        body: evt.time + ' 确认服用 ' + (evt.drugName || '药品'),
+        body: (evt.patientName ? evt.patientName + ' ' : '') + (evt.time || '') + ' 确认服用 ' + (evt.drugName || '药品'),
       });
     }
   } else if (evt.type === 'alert') {
     // 异常求助：弹出紧急弹窗
     currentAlertTs = evt.timestamp;
+    currentAlertPatientId = evt.patientId || null;
     document.getElementById('alert-desc').textContent =
-      (evt.time || '') + ' 家人按下了求助按钮，请尽快联系确认情况。';
+      (evt.patientName ? evt.patientName + ' ' : '') + (evt.time || '') + ' 按下了求助按钮，请尽快联系确认情况。';
     document.getElementById('alert-overlay').classList.add('show');
 
     // 更新状态指示灯
@@ -3578,10 +3536,10 @@ function renderGuardianEventList(newEvents) {
 // 关闭异常弹窗 + 上报确认
 function dismissAlert() {
   document.getElementById('alert-overlay').classList.remove('show');
-  const familyId = localStorage.getItem(FAMILY_ID_KEY);
-  if (familyId && currentAlertTs) {
-    apiPost('/api/events', { action: 'acknowledge', familyId, ts: currentAlertTs });
+  if (currentAlertTs && getCurrentUser()) {
+    apiPost('/api/events', { action: 'acknowledge', ts: currentAlertTs, targetPatientId: currentAlertPatientId || '' });
     currentAlertTs = 0;
+    currentAlertPatientId = null;
   }
   // 恢复状态指示
   const dot = document.getElementById('gp-dot');
@@ -3589,13 +3547,14 @@ function dismissAlert() {
   document.getElementById('gp-title').textContent = '实时守护';
 }
 
-// 拨打监护人电话
+// 拨打患者电话（紧急联系）
 function callGuardianPhone() {
-  const phone = guardianPhone || localStorage.getItem(GUARDIAN_PHONE_KEY) || '';
+  const pid = currentAlertPatientId || selectedPatientId;
+  const phone = (pid && patientPhones[pid]) || (relationList.length === 1 && relationList[0].phone) || '';
   if (phone) {
     window.location.href = 'tel:' + phone;
   } else {
-    showToast('未设置联系电话', 'warning');
+    showToast('未获取到长辈联系电话', 'warning');
   }
 }
 

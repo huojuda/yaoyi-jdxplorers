@@ -205,36 +205,59 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             print(f"[配对] 异常: {e}")
             self._send_json(500, {"error": str(e)})
 
-    # ---------- 事件上报 (POST) ----------
+    # ---------- 事件上报 (POST)：账号关联体系，事件挂在患者 userId 下 ----------
     def _handle_events_post(self):
         try:
-            body = self._read_body()
-            data = json.loads(body)
-
             if not UPSTASH_URL or not UPSTASH_TOKEN:
                 self._send_json(500, {"error": "服务器未配置 Upstash Redis"})
                 return
 
-            # 确认异常
+            # 认证（URL 参数 + body 双通道）
+            qs = parse_qs(urlparse(self.path).query)
+            data = {k: v[0] for k, v in qs.items()}
+            try:
+                body = self._read_body()
+                if body:
+                    data.update(json.loads(body))
+            except Exception:
+                pass
+
+            auth_header = self.headers.get("Authorization", "").replace("Bearer ", "").strip()
+            token = auth_header or data.get("_auth", "")
+            if not token:
+                self._send_json(401, {"error": "请先登录"})
+                return
+            user_id = redis_cmd("GET", "session:" + token).get("result")
+            if not user_id:
+                self._send_json(401, {"error": "登录已过期，请重新登录"})
+                return
+
+            # 求助确认（家属端）
             if data.get("action") == "acknowledge":
-                family_id = data.get("familyId", "")
-                ts = data.get("ts", 0)
-                if not family_id or not ts:
-                    self._send_json(400, {"error": "缺少 familyId 或 ts"})
+                target_pid = str(data.get("targetPatientId", "")).strip()
+                ts = str(data.get("ts", "")).strip()
+                if not target_pid or not ts:
+                    self._send_json(400, {"error": "缺少 targetPatientId 或 ts"})
                     return
-                redis_cmd("SET", "family:" + family_id + ":ack:" + str(ts), "1")
-                ack_event = {"type": "acknowledge", "timestamp": int(time.time() * 1000), "refTs": ts, "status": "acknowledged"}
-                redis_cmd("RPUSH", "family:" + family_id + ":events", json.dumps(ack_event, ensure_ascii=False))
+                related = redis_cmd("SISMEMBER", f"relation:{user_id}", target_pid).get("result")
+                if not related:
+                    self._send_json(403, {"error": "未关联该患者"})
+                    return
+                redis_cmd("SET", f"user:{target_pid}:ack:{ts}", "1")
+                ack_event = {
+                    "type": "acknowledge",
+                    "timestamp": int(time.time() * 1000),
+                    "refTs": int(ts),
+                    "patientId": target_pid,
+                    "status": "acknowledged",
+                }
+                redis_cmd("RPUSH", f"user:{target_pid}:events", json.dumps(ack_event, ensure_ascii=False))
+                redis_cmd("LTRIM", f"user:{target_pid}:events", -200, -1)
                 self._send_json(200, {"ok": True})
                 return
 
-            # 正常事件上报
-            family_id = data.get("familyId", "")
+            # 正常事件上报（患者端）
             event_type = data.get("type", "")
-            if not family_id or not event_type:
-                self._send_json(400, {"error": "缺少 familyId 或 type"})
-                return
-
             valid_types = {"medication", "alert", "monitor_end"}
             if event_type not in valid_types:
                 self._send_json(400, {"error": "未知事件类型: " + event_type})
@@ -242,21 +265,24 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
 
             event = {
                 "type": event_type,
+                "drugId": data.get("drugId", ""),
                 "drugName": data.get("drugName", ""),
+                "date": data.get("date", time.strftime("%Y-%m-%d")),
                 "time": data.get("time", ""),
                 "timestamp": int(time.time() * 1000),
+                "patientId": user_id,
                 "status": "pending",
             }
-            redis_cmd("RPUSH", "family:" + family_id + ":events", json.dumps(event, ensure_ascii=False))
-            redis_cmd("LTRIM", "family:" + family_id + ":events", -200, -1)
-            print(f"[事件] familyId={family_id} type={event_type} drug={data.get('drugName', '')}")
+            redis_cmd("RPUSH", f"user:{user_id}:events", json.dumps(event, ensure_ascii=False))
+            redis_cmd("LTRIM", f"user:{user_id}:events", -200, -1)
+            print(f"[事件] patient={user_id} type={event_type} drug={data.get('drugName', '')}")
             self._send_json(200, {"ok": True, "event": event})
 
         except Exception as e:
             print(f"[事件] POST 异常: {e}")
             self._send_json(500, {"error": str(e)})
 
-    # ---------- 事件轮询 (GET) ----------
+    # ---------- 事件轮询 (GET)：家属端聚合所有关联患者的事件 ----------
     def _handle_events_get(self):
         try:
             if not UPSTASH_URL or not UPSTASH_TOKEN:
@@ -265,33 +291,46 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
 
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
-            family_id = params.get("familyId", [""])[0]
             after = int(params.get("after", ["0"])[0])
 
-            if not family_id:
-                self._send_json(400, {"error": "缺少 familyId 参数"})
+            qs = parse_qs(urlparse(self.path).query)
+            auth_header = self.headers.get("Authorization", "").replace("Bearer ", "").strip()
+            token = auth_header or (qs.get("_auth", [""])[0])
+            if not token:
+                self._send_json(401, {"error": "请先登录"})
+                return
+            user_id = redis_cmd("GET", "session:" + token).get("result")
+            if not user_id:
+                self._send_json(401, {"error": "登录已过期，请重新登录"})
                 return
 
-            result = redis_cmd("LRANGE", "family:" + family_id + ":events", 0, -1)
-            raw_list = result.get("result", [])
-
+            members = redis_cmd("SMEMBERS", f"relation:{user_id}").get("result") or []
             events = []
-            for item in raw_list:
-                try:
-                    evt = json.loads(item)
-                    if evt.get("timestamp", 0) > after:
-                        events.append(evt)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-
-            # 已确认的异常标记
-            ack_result = redis_cmd("KEYS", "family:" + family_id + ":ack:*")
             acknowledged = []
-            for key in ack_result.get("result", []):
-                ts = key.rsplit(":", 1)[-1]
-                acknowledged.append(int(ts))
+            patient_phones = {}
 
-            self._send_json(200, {"events": events, "acknowledged": acknowledged})
+            for pid in members:
+                user = redis_cmd("HGETALL", f"user:{pid}").get("result") or {}
+                patient_name = user.get("displayName", "")
+                patient_phones[pid] = user.get("phone", "")
+
+                raw_list = redis_cmd("LRANGE", f"user:{pid}:events", 0, -1).get("result") or []
+                for item in raw_list:
+                    try:
+                        evt = json.loads(item)
+                        if evt.get("timestamp", 0) > after:
+                            evt["patientId"] = evt.get("patientId") or pid
+                            evt["patientName"] = patient_name
+                            events.append(evt)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+                ack_keys = redis_cmd("KEYS", f"user:{pid}:ack:*").get("result") or []
+                for key in ack_keys:
+                    acknowledged.append(int(key.rsplit(":", 1)[-1]))
+
+            events.sort(key=lambda e: e.get("timestamp", 0))
+            self._send_json(200, {"events": events, "acknowledged": acknowledged, "patientPhones": patient_phones})
 
         except Exception as e:
             print(f"[事件] GET 异常: {e}")
