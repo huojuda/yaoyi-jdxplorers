@@ -1923,18 +1923,11 @@ function startRecognition(imageData) {
 async function finishRecognition() {
   try {
     // 调用后端真实识别 API
-    const response = await fetch('/api/recognize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: currentImageData })
-    });
+    const result = await apiPost('/api/recognize', { image: currentImageData });
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || ('API返回错误 ' + response.status));
+    if (result.error) {
+      throw new Error(result.error);
     }
-
-    const result = await response.json();
 
     // 用 API 返回的药名匹配内置药品数据库
     const drug = matchDrug(result);
@@ -2584,29 +2577,60 @@ function getFamilyId() {
   return localStorage.getItem(FAMILY_ID_KEY) || '';
 }
 
+// ---- 拼接当前页面 query string（EdgeOne 预览链接 token 需要透传给 API） ----
+function edgeTokenQS() {
+  const qs = location.search;
+  if (qs && qs.includes('eo_token')) return qs;
+  return '';
+}
+function apiUrl(path, extraQS = '') {
+  let url = API_BASE + path;
+  const baseIdx = path.indexOf('?');
+  let existingQS = '';
+  if (baseIdx >= 0) {
+    existingQS = path.slice(baseIdx + 1);
+    url = API_BASE + path.slice(0, baseIdx);
+  }
+  const parts = [];
+  if (existingQS) parts.push(existingQS);
+  const tokenQS = edgeTokenQS();
+  if (tokenQS) parts.push(tokenQS.startsWith('?') ? tokenQS.slice(1) : tokenQS);
+  if (extraQS) parts.push(extraQS.startsWith('?') ? extraQS.slice(1) : extraQS);
+  if (parts.length) url += '?' + parts.join('&');
+  return url;
+}
+
 // ---- 通用 POST 封装 ----
-async function apiPost(path, body) {
+async function apiPost(path, body, extraQS = '') {
   try {
-    const resp = await fetch(API_BASE + path, {
+    const resp = await fetch(apiUrl(path, extraQS), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      return { error: 'HTTP ' + resp.status + (text.includes('UNAUTHORIZED') ? '（预览链接已过期，请重新从控制台点击"预览"获取新链接）' : '') };
+    }
     return await resp.json();
   } catch (e) {
     console.error('[API] POST ' + path + ' 失败:', e);
-    return { error: String(e) };
+    return { error: '网络错误：' + String(e.message || e) };
   }
 }
 
 // ---- 通用 GET 封装 ----
-async function apiGet(path) {
+async function apiGet(path, extraQS = '') {
   try {
-    const resp = await fetch(API_BASE + path);
+    const resp = await fetch(apiUrl(path, extraQS));
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      return { error: 'HTTP ' + resp.status + (text.includes('UNAUTHORIZED') ? '（预览链接已过期，请重新从控制台点击"预览"获取新链接）' : '') };
+    }
     return await resp.json();
   } catch (e) {
     console.error('[API] GET ' + path + ' 失败:', e);
-    return { error: String(e) };
+    return { error: '网络错误：' + String(e.message || e) };
   }
 }
 
