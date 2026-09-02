@@ -4,21 +4,17 @@
 
 export default function onRequest(context) {
   const { request, env } = context;
-  const method = request.method;
 
-  if (method === 'OPTIONS') {
+  // 先处理 CORS 预检
+  if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
-  }
-
-  if (method !== 'POST') {
-    return json(405, { error: 'Method Not Allowed' });
   }
 
   return (async () => {
@@ -27,7 +23,16 @@ export default function onRequest(context) {
         return json(500, { error: '服务器未配置 Upstash Redis' });
       }
 
-      const data = await request.json();
+      // 兼容各种方法：POST 从 body 读，GET 从 query 读
+      let data = {};
+      try {
+        data = await request.json();
+      } catch (e) {
+        // GET 请求没有 body，从 query string 读
+        const url = new URL(request.url);
+        data = { action: url.searchParams.get('action') || '', code: url.searchParams.get('code') || '', phone: url.searchParams.get('phone') || '' };
+      }
+
       const action = data.action || '';
 
       if (action === 'create') {
