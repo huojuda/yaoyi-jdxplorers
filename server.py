@@ -444,13 +444,13 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"token": token, "repaired": True, "user": {"userId": existing_id, "phone": phone, "role": role, "displayName": display_name}})
                 return
 
-            if not existing.get("role") or not existing.get("displayName"):
-                # 密码正常但身份字段缺失：验证密码后补全身份（不动密码）
+            if not existing.get("role") or not existing.get("displayName") or existing.get("role") != role:
+                # 身份缺失，或与本次提交不一致：验证密码后按本次提交修正（密码即本人凭证，不提升权限）
                 computed = hashlib.pbkdf2_hmac(
                     "sha256", password.encode(), bytes.fromhex(existing["salt"]), 10000
                 ).hex()
                 if computed != existing["passHash"]:
-                    self._send_json(401, {"error": "该手机号已注册且密码不匹配，无法修正身份，请用正确密码登录"})
+                    self._send_json(401, {"error": "该手机号已注册且密码不匹配。请输入当前密码来修正身份，或直接登录"})
                     return
                 redis_cmd("HSET", f"user:{existing_id}", "role", role, "displayName", display_name)
                 token = os.urandom(32).hex()

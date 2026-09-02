@@ -137,11 +137,11 @@ async function handleRegister(env, data) {
       });
     }
 
-    if (!existing.role || !existing.displayName) {
-      // 密码正常但身份字段缺失：验证密码后补全身份（不动密码）
+    if (!existing.role || !existing.displayName || existing.role !== role) {
+      // 身份缺失，或与本次提交不一致：验证密码后按本次提交修正（密码即本人凭证，不提升权限）
       const computed = await pbkdf2(password, existing.salt);
       if (computed !== existing.passHash) {
-        return json(401, { error: '该手机号已注册且密码不匹配，无法修正身份，请用正确密码登录' });
+        return json(401, { error: '该手机号已注册且密码不匹配。请输入当前密码来修正身份，或直接登录' });
       }
       await redisCmd(env, 'HSET', 'user:' + existingId, 'role', role, 'displayName', displayName);
       const token = randomHex(32);
@@ -194,15 +194,8 @@ async function handleLogin(env, data) {
     const salt = randomHex(16);
     const passHash = await pbkdf2(password, salt);
     await redisCmd(env, 'HSET', 'user:' + userId, 'passHash', passHash, 'salt', salt);
-    // 身份字段缺失时一并补默认值（真实身份可通过"重新注册"修正）
-    if (!user.role) {
-      await redisCmd(env, 'HSET', 'user:' + userId, 'role', 'patient');
-      user.role = 'patient';
-    }
-    if (!user.displayName) {
-      await redisCmd(env, 'HSET', 'user:' + userId, 'displayName', '长辈');
-      user.displayName = '长辈';
-    }
+    // 重要：不持久化默认角色——登录时用户无法表达角色意图，写死会堵死"重新注册修正身份"通道
+    // role 仅在本次响应中兜底显示，数据库里留空 → 之后注册页可修正
     await redisCmd(env, 'DEL', 'login:fail:' + phone);
 
     // 写入后回读验证，防止静默丢失
