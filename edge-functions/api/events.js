@@ -1,5 +1,5 @@
 // EdgeOne Pages Edge Function: /api/events
-// 事件上报(POST) + 监护人轮询(GET)
+// 事件上报(POST) + 监护人轮询(GET) - 兼容所有 HTTP 方法
 // 事件类型：medication / alert / monitor_end / acknowledge
 
 const MAX_EVENTS = 200;
@@ -7,9 +7,9 @@ const VALID_TYPES = ['medication', 'alert', 'monitor_end'];
 
 export default function onRequest(context) {
   const { request, env } = context;
-  const method = request.method;
 
-  if (method === 'OPTIONS') {
+  // CORS 预检
+  if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
       headers: {
@@ -26,13 +26,35 @@ export default function onRequest(context) {
         return json(500, { error: '服务器未配置 Upstash Redis' });
       }
 
-      if (method === 'GET') {
-        return await handleGet(env, request);
-      } else if (method === 'POST') {
-        return await handlePost(env, request);
-      } else {
-        return json(405, { error: 'Method Not Allowed' });
+      const urlParams = new URL(request.url).searchParams;
+      let bodyData = {};
+      try {
+        const bodyText = await request.text();
+        if (bodyText) {
+          try { bodyData = JSON.parse(bodyText); }
+          catch (e) {
+            const fp = new URLSearchParams(bodyText);
+            bodyData = Object.fromEntries(fp.entries());
+          }
+        }
+      } catch (e) { /* body read failed, use URL params only */ }
+
+      // 合并：body 优先，URL 补充
+      const data = { ...Object.fromEntries(urlParams.entries()), ...bodyData };
+
+      // 如果 URL 有 after 参数且是数字，就是轮询请求（GET 兼容）
+      const hasAfter = urlParams.has('after') || data.after !== undefined;
+      const isAck = data.action === 'acknowledge';
+      const hasEventType = data.type && VALID_TYPES.includes(data.type);
+
+      // 判断操作类型：有 familyId+after=轮询；有 type=事件上报；有 action=ack=确认
+      if (data.familyId && (hasAfter || !hasEventType)) {
+        return await handleGet(env, data);
+      } else if (isAck || hasEventType || data.familyId) {
+        return await handlePost(env, data);
       }
+
+      return json(400, { error: '无法识别操作，请提供 familyId + after（轮询）或 familyId + type（上报）' });
     } catch (e) {
       return json(500, { error: String(e && e.message || e) });
     }
@@ -61,10 +83,9 @@ async function redisCmd(env, ...args) {
   return await resp.json();
 }
 
-async function handleGet(env, request) {
-  const url = new URL(request.url);
-  const familyId = url.searchParams.get('familyId') || '';
-  const after = parseInt(url.searchParams.get('after') || '0', 10);
+async function handleGet(env, data) {
+  const familyId = data.familyId || '';
+  const after = parseInt(data.after || '0', 10);
 
   if (!familyId) {
     return json(400, { error: '缺少 familyId 参数' });
@@ -90,13 +111,11 @@ async function handleGet(env, request) {
   return json(200, { events, acknowledged });
 }
 
-async function handlePost(env, request) {
-  const data = await request.json();
-
+async function handlePost(env, data) {
   // 确认异常
   if (data.action === 'acknowledge') {
     const familyId = data.familyId || '';
-    const ts = data.ts || 0;
+    const ts = parseInt(data.ts || '0', 10);
     if (!familyId || !ts) {
       return json(400, { error: '缺少 familyId 或 ts' });
     }

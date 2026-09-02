@@ -1,33 +1,42 @@
 // EdgeOne Pages Edge Function: /api/recognize
-// 药盒识别，调用火山方舟多模态大模型
+// 药盒识别，调用火山方舟多模态大模型 - 兼容所有 HTTP 方法
 // 环境变量：YAOWI_API_KEY / YAOWI_API_ENDPOINT / YAOWI_MODEL_ID
 
 const RECOGNITION_PROMPT = '你是一个专业的药品识别助手。请仔细识别这张药品包装图片，提取以下信息并以严格的JSON格式返回：{"drug_name": "药品通用名（中文）", "brand_name": "商品名", "specification": "规格", "frequency": "服用频次", "timing": "服用时间", "meal_relation": "餐前/餐后/空腹/不限", "contraindication": "主要禁忌（一句话）", "confidence": 0.0}。如果图片中无法确定某个字段，填"未识别"。只返回JSON，不要其他文字。';
 
 export default function onRequest(context) {
   const { request, env } = context;
-  const method = request.method;
 
-  if (method === 'OPTIONS') {
+  // CORS 预检
+  if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
   }
 
-  if (method !== 'POST') {
-    return json(405, { error: 'Method Not Allowed' });
-  }
-
   return (async () => {
     try {
-      const data = await request.json();
-      const imageData = data.image || '';
+      // 从多个来源收集参数
+      const urlParams = new URL(request.url).searchParams;
+      let bodyData = {};
+      try {
+        const bodyText = await request.text();
+        if (bodyText) {
+          try { bodyData = JSON.parse(bodyText); }
+          catch (e) {
+            const fp = new URLSearchParams(bodyText);
+            bodyData = Object.fromEntries(fp.entries());
+          }
+        }
+      } catch (e) { /* ignore */ }
+      const data = { ...Object.fromEntries(urlParams.entries()), ...bodyData };
 
+      const imageData = data.image || '';
       if (!imageData) {
         return json(400, { error: '缺少图片数据' });
       }
