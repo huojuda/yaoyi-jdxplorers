@@ -315,6 +315,10 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
                 self._auth_register(data)
             elif action == "login":
                 self._auth_login(data)
+            elif action == "resetpw":
+                self._auth_resetpw(data)
+            elif action == "diag":
+                self._auth_diag(data)
             elif action == "me":
                 self._auth_me(token)
             elif action == "logout":
@@ -345,16 +349,12 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             return
 
         user_id = f"u_{int(time.time() * 1000)}{random.randint(1000, 9999)}"
-        nx = redis_cmd("SET", "user:phone:" + phone, user_id, "NX")
-        if nx.get("result") != "OK":
-            self._send_json(409, {"error": "该手机号已注册，请直接登录"})
-            return
-
         salt = os.urandom(16).hex()
         pass_hash = hashlib.pbkdf2_hmac(
             "sha256", password.encode(), bytes.fromhex(salt), 10000
         ).hex()
 
+        # 先写用户数据，再原子发布手机号映射：保证映射存在时用户数据必然完整
         redis_cmd(
             "HSET", f"user:{user_id}",
             "phone", phone,
@@ -364,6 +364,12 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             "displayName", display_name,
             "createdAt", str(int(time.time() * 1000)),
         )
+
+        nx = redis_cmd("SET", "user:phone:" + phone, user_id, "NX")
+        if nx.get("result") != "OK":
+            redis_cmd("DEL", f"user:{user_id}")  # 清理本次写入的孤儿数据
+            self._send_json(409, {"error": "该手机号已注册，请直接登录"})
+            return
 
         token = os.urandom(32).hex()
         redis_cmd("SET", "session:" + token, user_id, "EX", "604800")
@@ -388,6 +394,12 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             return
 
         user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+
+        # 用户数据不完整（缺盐值或哈希）——僵尸账号，引导重置
+        if not user.get("salt") or not user.get("passHash"):
+            self._send_json(409, {"error": "账号数据异常，请点击\"忘记密码\"重置密码"})
+            return
+
         computed = hashlib.pbkdf2_hmac(
             "sha256", password.encode(), bytes.fromhex(user.get("salt", "")), 10000
         ).hex()
@@ -405,6 +417,59 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         redis_cmd("SET", "session:" + token, user_id, "EX", "604800")
         print(f"[账号] 登录成功: {phone}")
         self._send_json(200, {"token": token, "user": {"userId": user_id, "phone": user.get("phone"), "role": user.get("role"), "displayName": user.get("displayName")}})
+
+    def _auth_resetpw(self, data):
+        """重置密码（原型版：无短信验证，仅校验手机号已注册）"""
+        phone = str(data.get("phone", "")).strip()
+        password = str(data.get("password", ""))
+
+        if not (phone.startswith("1") and len(phone) == 11 and phone.isdigit()):
+            self._send_json(400, {"error": "请输入11位手机号"})
+            return
+        if len(password) < 6:
+            self._send_json(400, {"error": "密码至少6位"})
+            return
+
+        user_id = redis_cmd("GET", "user:phone:" + phone).get("result")
+        if not user_id:
+            self._send_json(404, {"error": "该手机号尚未注册"})
+            return
+
+        salt = os.urandom(16).hex()
+        pass_hash = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), bytes.fromhex(salt), 10000
+        ).hex()
+        redis_cmd("HSET", f"user:{user_id}", "passHash", pass_hash, "salt", salt)
+        redis_cmd("DEL", "login:fail:" + phone)  # 重置成功即解除锁定
+
+        print(f"[账号] 密码重置: {phone}")
+        self._send_json(200, {"ok": True})
+
+    def _auth_diag(self, data):
+        """账号诊断（只返回长度/存在性，不泄露盐值与哈希）"""
+        phone = str(data.get("phone", "")).strip()
+        if not (phone.startswith("1") and len(phone) == 11 and phone.isdigit()):
+            self._send_json(400, {"error": "请输入11位手机号"})
+            return
+
+        user_id = redis_cmd("GET", "user:phone:" + phone).get("result")
+        if not user_id:
+            self._send_json(200, {"phone": phone, "exists": False})
+            return
+
+        user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
+        fail = redis_cmd("GET", "login:fail:" + phone).get("result") or "0"
+
+        self._send_json(200, {
+            "phone": phone,
+            "exists": True,
+            "userId": user_id,
+            "role": user.get("role", ""),
+            "displayName": user.get("displayName", ""),
+            "saltLen": len(user.get("salt", "")),
+            "hashLen": len(user.get("passHash", "")),
+            "failCount": int(fail),
+        })
 
     def _auth_me(self, token):
         if not token:

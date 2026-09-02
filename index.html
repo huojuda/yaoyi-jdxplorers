@@ -1163,6 +1163,10 @@ body {
     <div class="auth-label">密码</div>
     <input type="password" class="auth-input" id="auth-password" placeholder="至少6位" maxlength="20">
 
+    <div id="forgot-row" style="text-align:right;margin-top:6px;">
+      <a href="javascript:void(0)" onclick="switchAuthMode('reset')" style="font-size:13px;color:var(--primary);text-decoration:none;">忘记密码？</a>
+    </div>
+
     <button class="btn btn-primary" id="auth-submit" onclick="handleAuthSubmit()" style="margin-top:20px;">登 录</button>
 
     <div class="auth-hint" id="auth-hint">没有账号？点击上方"注册"创建一个</div>
@@ -2828,18 +2832,25 @@ function renderAccountBtn() {
 }
 
 // ---- 登录/注册页交互 ----
-let authMode = 'login';       // login | register
+let authMode = 'login';       // login | register | reset
 let pickedRole = 'patient';   // patient | caregiver
 
 function switchAuthMode(mode) {
   authMode = mode;
-  document.getElementById('tab-login').classList.toggle('active', mode === 'login');
-  document.getElementById('tab-register').classList.toggle('active', mode === 'register');
-  document.getElementById('auth-role-group').style.display = mode === 'register' ? 'block' : 'none';
-  document.getElementById('auth-submit').textContent = mode === 'login' ? '登 录' : '注 册';
-  document.getElementById('auth-hint').textContent = mode === 'login'
-    ? '没有账号？点击上方"注册"创建一个'
-    : '注册即自动登录，信息保存在您的账号下';
+  const isLogin = mode === 'login';
+  const isRegister = mode === 'register';
+  const isReset = mode === 'reset';
+  document.getElementById('tab-login').classList.toggle('active', isLogin);
+  document.getElementById('tab-register').classList.toggle('active', isRegister);
+  document.getElementById('auth-role-group').style.display = isRegister ? 'block' : 'none';
+  document.getElementById('forgot-row').style.display = isLogin ? 'block' : 'none';
+  document.getElementById('auth-title').textContent = isReset ? '重置密码' : (isLogin ? '登录' : '注册');
+  document.getElementById('auth-submit').textContent = isReset ? '重置密码' : (isLogin ? '登 录' : '注 册');
+  document.getElementById('auth-hint').textContent = isReset
+    ? '设置新密码后即可用新密码登录'
+    : isLogin
+      ? '没有账号？点击上方"注册"创建一个'
+      : '注册即自动登录，信息保存在您的账号下';
 }
 
 function pickRole(role) {
@@ -2862,14 +2873,22 @@ async function handleAuthSubmit() {
 
   const body = authMode === 'register'
     ? { action: 'register', phone, password, role: pickedRole, displayName }
-    : { action: 'login', phone, password };
+    : authMode === 'reset'
+      ? { action: 'resetpw', phone, password }
+      : { action: 'login', phone, password };
 
   const r = await apiPost('/api/auth', body);
 
   submitBtn.disabled = false;
-  submitBtn.textContent = authMode === 'login' ? '登 录' : '注 册';
+  submitBtn.textContent = authMode === 'login' ? '登 录' : (authMode === 'reset' ? '重置密码' : '注 册');
 
   if (r.error) { showToast(r.error, 'danger'); return; }
+
+  if (authMode === 'reset') {
+    showToast('密码已重置，请用新密码登录', 'success');
+    switchAuthMode('login');
+    return;
+  }
 
   setAuthSession(r.token, r.user);
   showToast('欢迎，' + r.user.displayName, 'success');

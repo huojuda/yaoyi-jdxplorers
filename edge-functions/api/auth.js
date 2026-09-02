@@ -55,10 +55,12 @@ export default function onRequest(context) {
 
       if (action === 'register') return await handleRegister(env, data);
       if (action === 'login') return await handleLogin(env, data);
+      if (action === 'resetpw') return await handleResetPw(env, data);
+      if (action === 'diag') return await handleDiag(env, data);
       if (action === 'me') return await handleMe(env, token);
       if (action === 'logout') return await handleLogout(env, token);
 
-      return json(400, { error: '未知操作，应为 register/login/me/logout' });
+      return json(400, { error: '未知操作，应为 register/login/resetpw/diag/me/logout' });
     } catch (e) {
       return json(500, { error: String(e && e.message || e) });
     }
@@ -84,14 +86,11 @@ async function handleRegister(env, data) {
 
   // 手机号占用检查（NX 原子操作防并发重复注册）
   const userId = genUserId();
-  const nx = await redisCmd(env, 'SET', 'user:phone:' + phone, userId, 'NX');
-  if (nx.result !== 'OK') {
-    return json(409, { error: '该手机号已注册，请直接登录' });
-  }
-
   const salt = randomHex(16);
   const passHash = await pbkdf2(password, salt);
 
+  // 先写用户数据，再原子发布手机号映射：保证映射存在时用户数据必然完整
+  //（若先发布映射、后写数据，中途失败会产生"映射存在但无盐值/哈希"的僵尸账号，登录永远失败）
   await redisCmd(env, 'HSET', 'user:' + userId,
     'phone', phone,
     'passHash', passHash,
@@ -100,6 +99,12 @@ async function handleRegister(env, data) {
     'displayName', displayName,
     'createdAt', String(Date.now())
   );
+
+  const nx = await redisCmd(env, 'SET', 'user:phone:' + phone, userId, 'NX');
+  if (nx.result !== 'OK') {
+    await redisCmd(env, 'DEL', 'user:' + userId); // 清理本次写入的孤儿数据
+    return json(409, { error: '该手机号已注册，请直接登录' });
+  }
 
   // 注册即登录
   const token = randomHex(32);
@@ -133,7 +138,13 @@ async function handleLogin(env, data) {
   }
 
   const user = (await redisCmd(env, 'HGETALL', 'user:' + userId)).result || {};
-  const computed = await pbkdf2(password, user.salt || '');
+
+  // 用户数据不完整（缺盐值或哈希）——僵尸账号，引导重置而非无意义的"密码错误"
+  if (!user.salt || !user.passHash) {
+    return json(409, { error: '账号数据异常，请点击"忘记密码"重置密码' });
+  }
+
+  const computed = await pbkdf2(password, user.salt);
 
   if (computed !== user.passHash) {
     const cnt = await redisCmd(env, 'INCR', 'login:fail:' + phone);
@@ -156,6 +167,61 @@ async function handleLogin(env, data) {
       role: user.role,
       displayName: user.displayName,
     },
+  });
+}
+
+// ---------- 重置密码（原型版：无短信验证，仅校验手机号已注册） ----------
+async function handleResetPw(env, data) {
+  const phone = String(data.phone || '').trim();
+  const password = String(data.password || '');
+
+  if (!/^1\d{10}$/.test(phone)) {
+    return json(400, { error: '请输入11位手机号' });
+  }
+  if (password.length < 6) {
+    return json(400, { error: '密码至少6位' });
+  }
+
+  const userIdRes = await redisCmd(env, 'GET', 'user:phone:' + phone);
+  const userId = userIdRes.result;
+  if (!userId) {
+    return json(404, { error: '该手机号尚未注册' });
+  }
+
+  const salt = randomHex(16);
+  const passHash = await pbkdf2(password, salt);
+  await redisCmd(env, 'HSET', 'user:' + userId, 'passHash', passHash, 'salt', salt);
+
+  // 重置成功即解除登录失败锁定
+  await redisCmd(env, 'DEL', 'login:fail:' + phone);
+
+  return json(200, { ok: true });
+}
+
+// ---------- 账号诊断（只返回长度/存在性，不泄露盐值与哈希） ----------
+async function handleDiag(env, data) {
+  const phone = String(data.phone || '').trim();
+  if (!/^1\d{10}$/.test(phone)) {
+    return json(400, { error: '请输入11位手机号' });
+  }
+
+  const userId = (await redisCmd(env, 'GET', 'user:phone:' + phone)).result;
+  if (!userId) {
+    return json(200, { phone, exists: false });
+  }
+
+  const user = (await redisCmd(env, 'HGETALL', 'user:' + userId)).result || {};
+  const fail = await redisCmd(env, 'GET', 'login:fail:' + phone);
+
+  return json(200, {
+    phone,
+    exists: true,
+    userId,
+    role: user.role || '',
+    displayName: user.displayName || '',
+    saltLen: (user.salt || '').length,
+    hashLen: (user.passHash || '').length,
+    failCount: parseInt(fail.result || '0', 10),
   });
 }
 
