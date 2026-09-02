@@ -2098,7 +2098,13 @@ function startRecognition(imageData) {
 async function finishRecognition() {
   try {
     // 调用后端真实识别 API
-    const result = await apiPost('/api/recognize', { image: currentImageData });
+    let result = await apiPost('/api/recognize', { image: currentImageData });
+
+    // EdgeOne 预览链接会丢弃大体积 POST body（报"缺少图片数据"）→ 改走 GET 分片通道
+    if (result.error && /缺少图片数据/.test(result.error) && currentImageData && currentImageData.length > 1000) {
+      showToast('直传通道不可用，改用分片通道上传…', 'info');
+      result = await recognizeViaChunks(currentImageData);
+    }
 
     if (result.error) {
       throw new Error(result.error);
@@ -2141,6 +2147,38 @@ async function finishRecognition() {
     const reason = String((e && e.message) || e || '未知错误');
     showToast('演示模式（原因: ' + (reason.length > 70 ? reason.slice(0, 70) + '…' : reason) + '）', 'warning');
   }
+}
+
+// ---- GET 分片上传识别：把 dataURL 切成小片经 GET 存入 Redis，最后一片触发组装识别 ----
+// （EdgeOne 预览链接会静默丢弃大体积 POST body，GET 通道已被配对/事件/账号接口验证可靠）
+async function recognizeViaChunks(dataUrl) {
+  // 分片通道先二次压缩，控制分片数量（1000px、目标100KB以内）
+  const smallDataUrl = await recompressForChunks(dataUrl);
+  const sid = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+  const CHUNK = 5000;
+  const total = Math.ceil(smallDataUrl.length / CHUNK);
+  if (total > 200) throw new Error('图片分片过多，请重拍更清晰的近距离照片');
+  let last = null;
+  for (let i = 0; i < total; i++) {
+    const piece = smallDataUrl.substr(i * CHUNK, CHUNK);
+    last = await apiGet('/api/recognize', 'up=1&sid=' + sid + '&i=' + i + '&n=' + total + '&d=' + encodeURIComponent(piece));
+    if (last.error && i < total - 1) throw new Error('分片上传失败: ' + last.error);
+  }
+  if (!last || last.error) throw new Error((last && last.error) || '分片识别失败');
+  return last;
+}
+
+// 二次压缩：加载已有 dataURL 后用 compressImageDataUrl 重新压到更小体积
+function recompressForChunks(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try { resolve(compressImageDataUrl(img, 1000, 100 * 1024)); }
+      catch (e) { resolve(dataUrl); }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 // 根据 API 返回的药品信息匹配内置数据库
