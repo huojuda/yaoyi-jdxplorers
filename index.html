@@ -1289,6 +1289,75 @@ body {
 .combo-item.danger .combo-item-title { color: #dc2626; }
 .combo-item.warning .combo-item-title { color: #d97706; }
 .combo-item.caution .combo-item-title { color: #4b5563; }
+
+.adherence-card {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 12px 0;
+  border: 1px solid #bbf7d0;
+}
+.adherence-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.adherence-badge {
+  font-weight: 700;
+  font-size: 15px;
+  color: #15803d;
+}
+.adherence-score {
+  font-size: 24px;
+  font-weight: 800;
+  color: #16a34a;
+}
+.adherence-bar-container {
+  background: #e5e7eb;
+  border-radius: 10px;
+  height: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.adherence-bar {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.8s ease;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+}
+.adherence-stats {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.adherence-stat {
+  text-align: center;
+}
+.adherence-stat-num {
+  font-size: 18px;
+  font-weight: 700;
+  color: #374151;
+}
+.adherence-stat-label {
+  color: #6b7280;
+  font-size: 11px;
+}
+.adherence-analysis {
+  font-size: 13px;
+  color: #374151;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.adherence-suggestion {
+  font-size: 12px;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 8px 12px;
+  border-radius: 8px;
+  line-height: 1.5;
+}
 .combo-tip {
   margin-top: 10px;
   font-size: 12px;
@@ -2101,6 +2170,20 @@ body {
     <div class="combo-summary" id="combo-summary"></div>
     <div class="combo-list" id="combo-list"></div>
     <div class="combo-tip" id="combo-tip"></div>
+  </div>
+
+  <!-- AI 用药依从性评分 -->
+  <div class="adherence-card" id="adherence-card" style="display:none;">
+    <div class="adherence-header">
+      <span class="adherence-badge">📊 AI 用药依从性评分</span>
+      <span class="adherence-score" id="adherence-score"></span>
+    </div>
+    <div class="adherence-bar-container">
+      <div class="adherence-bar" id="adherence-bar"></div>
+    </div>
+    <div class="adherence-stats" id="adherence-stats"></div>
+    <div class="adherence-analysis" id="adherence-analysis"></div>
+    <div class="adherence-suggestion" id="adherence-suggestion"></div>
   </div>
 
   <!-- 今天用药安全检查 -->
@@ -3044,7 +3127,7 @@ function showPage(pageId) {
   document.getElementById('page-' + pageId).classList.add('active');
   window.scrollTo(0, 0);
   if (pageId === 'home') renderTodayMeds();
-  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); renderComboAnalysis(); updateAlcoholBtn(); }
+  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); renderComboAnalysis(); renderAdherenceScore(); updateAlcoholBtn(); }
   if (pageId === 'family') { onEnterFamilyPage(); }
 }
 
@@ -4365,6 +4448,98 @@ function renderComboAnalysis() {
   } else {
     tip.textContent = '💡 以上分析基于药品说明书和临床指南，仅供参考，具体请遵医嘱。';
   }
+  card.style.display = 'block';
+}
+
+// ============================================================
+// AI 用药依从性评分
+// ============================================================
+function renderAdherenceScore() {
+  const card = document.getElementById('adherence-card');
+  if (!card) return;
+  const records = loadRecords();
+  if (records.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  // 统计最近7天的数据
+  const today = new Date();
+  const weekRecords = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.getFullYear() + '-' + (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
+    const dayRecords = records.filter(r => r.date === dateStr);
+    weekRecords.push({ date: dateStr, records: dayRecords });
+  }
+  // 计算应服次数 vs 已服次数（基于常用药品）
+  const drugCounts = {};
+  records.forEach(r => {
+    if (!drugCounts[r.drugId]) drugCounts[r.drugId] = 0;
+    drugCounts[r.drugId]++;
+  });
+  const commonDrugs = Object.keys(drugCounts).filter(id => drugCounts[id] >= 3);
+  // 估算每天应服次数
+  let expectedPerDay = 0;
+  commonDrugs.forEach(id => {
+    const drug = DRUG_DB.find(d => d.id === id);
+    if (drug && drug.frequency) {
+      const m = drug.frequency.match(/每天(\d)(?:-(\d))?次/);
+      if (m) expectedPerDay += parseInt(m[1], 10);
+    }
+  });
+  if (expectedPerDay === 0) expectedPerDay = commonDrugs.length; // 默认每种每天1次
+  // 统计
+  const totalExpected = expectedPerDay * 7;
+  const totalTaken = weekRecords.reduce((sum, d) => sum + d.records.length, 0);
+  const missedDays = weekRecords.filter(d => d.records.length < expectedPerDay).length;
+  const onTimeCount = weekRecords.reduce((sum, d) => sum + d.records.filter(r => {
+    // 简单判断：8-10点算早上按时，17-19点算晚上按时
+    const h = parseInt(r.time.split(':')[0], 10);
+    return (h >= 7 && h <= 10) || (h >= 17 && h <= 21);
+  }).length, 0);
+  // 计算分数（0-100）
+  let score = Math.min(100, Math.round((totalTaken / totalExpected) * 100));
+  if (missedDays > 0) score = Math.max(0, score - missedDays * 5);
+  score = Math.max(0, Math.min(100, score));
+  // 渲染
+  document.getElementById('adherence-score').textContent = score + '分';
+  const bar = document.getElementById('adherence-bar');
+  bar.style.width = score + '%';
+  if (score >= 80) bar.style.background = 'linear-gradient(90deg, #22c55e, #16a34a)';
+  else if (score >= 60) bar.style.background = 'linear-gradient(90deg, #f59e0b, #d97706)';
+  else bar.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
+  // 统计数据
+  document.getElementById('adherence-stats').innerHTML =
+    '<div class="adherence-stat"><div class="adherence-stat-num">' + totalTaken + '</div><div class="adherence-stat-label">已服次数</div></div>' +
+    '<div class="adherence-stat"><div class="adherence-stat-num">' + Math.max(0, totalExpected - totalTaken) + '</div><div class="adherence-stat-label">漏服次数</div></div>' +
+    '<div class="adherence-stat"><div class="adherence-stat-num">' + (7 - missedDays) + '/7</div><div class="adherence-stat-label">达标天数</div></div>';
+  // 分析
+  let analysis = '最近7天您共服用 ' + totalTaken + ' 次药物，';
+  if (missedDays === 0) {
+    analysis += '每天都按时服药，非常棒！';
+  } else {
+    analysis += '有 ' + missedDays + ' 天存在漏服。';
+    // 分析漏服规律
+    const eveningMissed = weekRecords.filter(d => {
+      const hasEvening = d.records.some(r => parseInt(r.time.split(':')[0], 10) >= 17);
+      return !hasEvening && d.records.length > 0;
+    }).length;
+    if (eveningMissed > 0) {
+      analysis += '您经常忘记晚上的药。';
+    }
+  }
+  document.getElementById('adherence-analysis').textContent = analysis;
+  // 建议
+  let suggestion = '';
+  if (score >= 80) {
+    suggestion = '👍 您的用药依从性很好，请继续保持！建议继续使用药忆记录每次服药。';
+  } else if (score >= 60) {
+    suggestion = '💡 您的用药依从性有待提升。建议把药盒放在显眼位置（如牙刷旁、餐桌上），设置手机闹钟提醒。';
+  } else {
+    suggestion = '⚠️ 您的用药依从性较低，频繁漏服可能影响治疗效果。建议家属协助提醒，或使用分装药盒提前配好一周的药。';
+  }
+  document.getElementById('adherence-suggestion').textContent = suggestion;
   card.style.display = 'block';
 }
 
