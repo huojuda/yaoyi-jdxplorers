@@ -641,6 +641,170 @@ body {
   50% { box-shadow: 0 6px 20px rgba(229,57,53,0.35), 0 0 0 16px rgba(229,57,53,0); }
 }
 
+/* ===== AI 用药问答 ===== */
+.ai-ask-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(135deg, #7C4DFF 0%, #536DFE 100%);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 18px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(124,77,255,0.3);
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+.ai-ask-btn:active { transform: scale(0.97); }
+.ai-panel {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  border: 2px solid #E8EAF6;
+}
+.ai-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.ai-panel-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #4527A0;
+}
+.ai-panel-close {
+  font-size: 20px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+.ai-quick-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ai-quick-btn {
+  padding: 8px 14px;
+  background: #F3E5F5;
+  color: #6A1B9A;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ai-quick-btn:active { background: #E1BEE7; transform: scale(0.95); }
+.ai-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.ai-input {
+  flex: 1;
+  padding: 12px 14px;
+  border: 2px solid #E0E0E0;
+  border-radius: 12px;
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.ai-input:focus { border-color: #7C4DFF; }
+.ai-voice-input-btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: #F3E5F5;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ai-voice-input-btn:active { background: #E1BEE7; }
+.ai-voice-input-btn.listening {
+  background: #FFCDD2;
+  animation: voicePulse 1s infinite;
+}
+.ai-send-btn {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #7C4DFF 0%, #536DFE 100%);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ai-send-btn:active { transform: scale(0.95); }
+.ai-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ai-answer-area {
+  background: #F5F5FF;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 8px;
+}
+.ai-answer-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4527A0;
+  margin-bottom: 8px;
+}
+.ai-answer-text {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #333;
+  white-space: pre-wrap;
+}
+.ai-answer-voice-btn {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background: #E8EAF6;
+  color: #283593;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ai-answer-voice-btn:active { background: #C5CAE9; }
+.ai-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  color: #7C4DFF;
+  font-size: 15px;
+}
+.ai-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid #E8EAF6;
+  border-top-color: #7C4DFF;
+  border-radius: 50%;
+  animation: aiSpin 0.8s linear infinite;
+}
+@keyframes aiSpin {
+  to { transform: rotate(360deg); }
+}
+
 /* ===== 记录页 ===== */
 .history-list { margin-bottom: 20px; }
 .history-date-group {
@@ -998,6 +1162,377 @@ body {
   margin-top: 8px;
 }
 
+/* ===== 方言切换 ===== */
+.dialect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  justify-content: center;
+}
+.dialect-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.dialect-btn {
+  padding: 6px 14px;
+  border: 2px solid #E0E0E0;
+  background: #fff;
+  border-radius: 16px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+.dialect-btn.active {
+  border-color: var(--primary);
+  background: #E3F2FD;
+  color: var(--primary);
+  font-weight: 700;
+}
+.dialect-btn:active { transform: scale(0.95); }
+
+/* ===== AI 用药风险预测 ===== */
+.ai-risk-card {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-left: 4px solid #FF9800;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+}
+.ai-risk-card.high { border-left-color: #F44336; }
+.ai-risk-card.medium { border-left-color: #FF9800; }
+.ai-risk-card.low { border-left-color: #4CAF50; }
+.ai-risk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.ai-risk-badge {
+  font-size: 14px;
+  font-weight: 700;
+  color: #E65100;
+}
+.ai-risk-level {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ai-risk-level.high { background: #FFEBEE; color: #C62828; }
+.ai-risk-level.medium { background: #FFF3E0; color: #E65100; }
+.ai-risk-level.low { background: #E8F5E9; color: #2E7D32; }
+.ai-risk-content {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.ai-risk-suggestion {
+  font-size: 13px;
+  color: #1565C0;
+  background: #E3F2FD;
+  padding: 8px 12px;
+  border-radius: 8px;
+  line-height: 1.5;
+}
+
+/* ===== AI 个性化提醒 ===== */
+.ai-reminder-card {
+  background: linear-gradient(135deg, #EDE7F6 0%, #D1C4E9 100%);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 2px solid #B39DDB;
+  position: relative;
+}
+.ai-reminder-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.ai-reminder-badge {
+  background: #5E35B1;
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ai-reminder-close {
+  font-size: 16px;
+  color: #7E57C2;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.ai-reminder-content {
+  font-size: 15px;
+  color: #311B92;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.ai-reminder-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ai-time-chip {
+  background: #fff;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4527A0;
+  box-shadow: 0 2px 6px rgba(94,53,177,0.15);
+}
+
+/* ===== 周报卡片 ===== */
+.weekly-report-btn {
+  background: linear-gradient(135deg, #00897B 0%, #00695C 100%) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(0,137,123,0.3);
+}
+.report-popup {
+  background: #fff;
+  border-radius: 20px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  position: relative;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.report-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 22px;
+  color: #999;
+  cursor: pointer;
+  z-index: 10;
+}
+.report-title {
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 14px;
+  color: var(--text-primary);
+}
+#report-canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+.report-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.report-actions .btn { flex: 1; }
+.report-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+}
+
+/* ===== 扫码加药 ===== */
+.scan-btn {
+  background: linear-gradient(135deg, #E65100 0%, #BF360C 100%) !important;
+  box-shadow: 0 6px 20px rgba(230,81,0,0.35) !important;
+}
+.scan-area {
+  background: #1a1a2e;
+  border-radius: var(--radius);
+  padding: 30px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: center;
+}
+.scan-frame {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.scan-corner {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-color: #4CAF50;
+  border-style: solid;
+}
+.scan-corner.tl { top: 0; left: 0; border-width: 4px 0 0 4px; border-radius: 8px 0 0 0; }
+.scan-corner.tr { top: 0; right: 0; border-width: 4px 4px 0 0; border-radius: 0 8px 0 0; }
+.scan-corner.bl { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-radius: 0 0 0 8px; }
+.scan-corner.br { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-radius: 0 0 8px 0; }
+.scan-line {
+  position: absolute;
+  left: 10%;
+  width: 80%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #4CAF50, transparent);
+  top: 50%;
+  animation: scanMove 2s ease-in-out infinite;
+  box-shadow: 0 0 10px #4CAF50;
+}
+@keyframes scanMove {
+  0%, 100% { top: 15%; }
+  50% { top: 85%; }
+}
+.scan-placeholder {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: rgba(255,255,255,0.6);
+}
+.scan-qr-icon { font-size: 48px; margin-bottom: 8px; }
+.scan-text { font-size: 13px; }
+.scan-result {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-top: 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  border: 2px solid #E8F5E9;
+}
+.scan-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.scan-badge {
+  background: #E8F5E9;
+  color: #2E7D32;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.scan-order {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.scan-drug-info {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.scan-drug-icon {
+  font-size: 40px;
+  width: 60px;
+  height: 60px;
+  background: #FFF3E0;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.scan-drug-detail { flex: 1; }
+.scan-drug-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.scan-drug-spec {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.scan-drug-usage {
+  font-size: 14px;
+  color: var(--primary);
+  font-weight: 600;
+}
+.scan-actions {
+  display: flex;
+  gap: 10px;
+}
+.scan-actions .btn { flex: 1; }
+
+/* ===== 快速体验 ===== */
+.quick-exp-section {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.quick-exp-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.quick-exp-grid {
+  display: flex;
+  gap: 10px;
+}
+.quick-exp-card {
+  flex: 1;
+  background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+  border-radius: 14px;
+  padding: 14px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 2px solid transparent;
+}
+.quick-exp-card:active {
+  transform: scale(0.95);
+  border-color: var(--primary);
+}
+.qec-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+.qec-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1565C0;
+  margin-bottom: 2px;
+}
+.qec-desc {
+  font-size: 12px;
+  color: #1976D2;
+}
+.quick-exp-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+}
+
+/* ===== 一键体验按钮 ===== */
+.demo-login-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 17px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  margin-top: 10px;
+  box-shadow: 0 4px 14px rgba(255,152,0,0.3);
+  transition: all 0.15s;
+}
+.demo-login-btn:active { transform: scale(0.97); }
+
 /* ===== 登录/注册页 ===== */
 .auth-card {
   background: var(--card);
@@ -1113,11 +1648,50 @@ body {
     <div class="date-text" id="date-text"></div>
   </div>
 
+  <!-- AI 个性化用药提醒 -->
+  <div class="ai-reminder-card" id="ai-reminder-card" style="display:none;">
+    <div class="ai-reminder-header">
+      <span class="ai-reminder-badge">🤖 AI 智能提醒</span>
+      <span class="ai-reminder-close" onclick="document.getElementById('ai-reminder-card').style.display='none'">✕</span>
+    </div>
+    <div class="ai-reminder-content" id="ai-reminder-content"></div>
+    <div class="ai-reminder-times" id="ai-reminder-times"></div>
+  </div>
+
+  <button class="camera-main-btn scan-btn" onclick="startScanAdd()">
+    <span class="camera-icon">📱</span>
+    <span>扫码加药</span>
+    <span class="camera-hint">扫描京东大药房药盒二维码，自动添加用药</span>
+  </button>
+
   <button class="camera-main-btn" onclick="startCamera()">
     <span class="camera-icon">📷</span>
     <span>拍药盒识药</span>
     <span class="camera-hint">对准药盒拍一张，AI告诉您怎么吃</span>
   </button>
+
+  <!-- 快速体验区域 -->
+  <div class="quick-exp-section">
+    <div class="quick-exp-title">⚡ 快速体验（无需注册）</div>
+    <div class="quick-exp-grid">
+      <div class="quick-exp-card" onclick="quickExperience('donepezil')">
+        <div class="qec-icon">🧠</div>
+        <div class="qec-name">多奈哌齐</div>
+        <div class="qec-desc">改善记忆力</div>
+      </div>
+      <div class="quick-exp-card" onclick="quickExperience('aspirin')">
+        <div class="qec-icon">❤️</div>
+        <div class="qec-name">阿司匹林</div>
+        <div class="qec-desc">防血栓</div>
+      </div>
+      <div class="quick-exp-card" onclick="quickExperience('metformin')">
+        <div class="qec-icon">🩸</div>
+        <div class="qec-name">二甲双胍</div>
+        <div class="qec-desc">降血糖</div>
+      </div>
+    </div>
+    <div class="quick-exp-hint">点击药品直接查看AI识别结果</div>
+  </div>
 
   <button class="btn btn-secondary" onclick="showPage('history')">
     📋 用药记录
@@ -1142,7 +1716,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.1.7
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.2.0
   </div>
 </div>
 
@@ -1188,6 +1762,10 @@ body {
     </div>
 
     <button class="btn btn-primary" id="auth-submit" onclick="handleAuthSubmit()" style="margin-top:20px;">登 录</button>
+
+    <button class="demo-login-btn" onclick="demoLogin()">
+      ⚡ 一键体验（演示账号）
+    </button>
 
     <div class="auth-hint" id="auth-hint">没有账号？点击上方"注册"创建一个</div>
 
@@ -1330,6 +1908,45 @@ body {
   <!-- 药物冲突警告（与今天已服药的冲突检查） -->
   <div class="interaction-section" id="result-interaction-section" style="display:none;"></div>
 
+  <!-- AI 用药问答 -->
+  <button class="ai-ask-btn" id="ai-ask-toggle-btn" onclick="toggleAIPanel()">
+    💬 问AI用药问题
+  </button>
+
+  <div class="ai-panel" id="ai-panel" style="display:none;">
+    <div class="ai-panel-header">
+      <span class="ai-panel-title">🤖 AI 用药顾问</span>
+      <span class="ai-panel-close" onclick="toggleAIPanel()">✕</span>
+    </div>
+    <div class="ai-quick-questions">
+      <button class="ai-quick-btn" onclick="askQuickQuestion('这个药和降压药能一起吃吗？')">和降压药冲突吗</button>
+      <button class="ai-quick-btn" onclick="askQuickQuestion('我今天忘了吃，现在能补吗？')">忘吃了能补吗</button>
+      <button class="ai-quick-btn" onclick="askQuickQuestion('吃了有点恶心，正常吗？')">恶心正常吗</button>
+      <button class="ai-quick-btn" onclick="askQuickQuestion('这个药要吃多久？')">要吃多久</button>
+    </div>
+    <div class="ai-input-row">
+      <input type="text" class="ai-input" id="ai-question-input" placeholder="输入你的问题..." maxlength="200">
+      <button class="ai-voice-input-btn" onclick="startVoiceInput()" title="语音输入">🎤</button>
+      <button class="ai-send-btn" onclick="askAI()">发送</button>
+    </div>
+    <div class="ai-answer-area" id="ai-answer-area" style="display:none;">
+      <div class="ai-answer-label">AI 回答：</div>
+      <div class="ai-answer-text" id="ai-answer-text"></div>
+      <button class="ai-answer-voice-btn" onclick="speakAIAnswer()">🔊 朗读回答</button>
+    </div>
+    <div class="ai-loading" id="ai-loading" style="display:none;">
+      <span class="ai-spinner"></span> AI 正在思考...
+    </div>
+  </div>
+
+  <!-- 方言切换 -->
+  <div class="dialect-row">
+    <span class="dialect-label">语音：</span>
+    <button class="dialect-btn active" data-dialect="mandarin" onclick="setDialect('mandarin')">普通话</button>
+    <button class="dialect-btn" data-dialect="cantonese" onclick="setDialect('cantonese')">粤语</button>
+    <button class="dialect-btn" data-dialect="sichuan" onclick="setDialect('sichuan')">四川话</button>
+  </div>
+
   <!-- 操作按钮 -->
   <button class="voice-btn" id="voice-btn" onclick="speakResult()">
     🔊 语音播报
@@ -1347,6 +1964,50 @@ body {
   </div>
 </div>
 
+<!-- ==================== 扫码加药页 ==================== -->
+<div id="page-scan" class="page">
+  <div class="section-title" style="margin-top:0;">📱 扫码加药</div>
+
+  <div class="scan-area" id="scan-area">
+    <div class="scan-frame">
+      <div class="scan-corner tl"></div>
+      <div class="scan-corner tr"></div>
+      <div class="scan-corner bl"></div>
+      <div class="scan-corner br"></div>
+      <div class="scan-line" id="scan-line"></div>
+      <div class="scan-placeholder">
+        <div class="scan-qr-icon">🔲</div>
+        <div class="scan-text">将京东大药房药盒二维码对准框内</div>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" id="scan-simulate-btn" onclick="simulateScan()">
+    📸 模拟扫码（演示）
+  </button>
+
+  <div class="scan-result" id="scan-result" style="display:none;">
+    <div class="scan-result-header">
+      <span class="scan-badge">✅ 京东大药房</span>
+      <span class="scan-order">订单号：JD20260911001</span>
+    </div>
+    <div class="scan-drug-info">
+      <div class="scan-drug-icon">💊</div>
+      <div class="scan-drug-detail">
+        <div class="scan-drug-name" id="scan-drug-name"></div>
+        <div class="scan-drug-spec" id="scan-drug-spec"></div>
+        <div class="scan-drug-usage" id="scan-drug-usage"></div>
+      </div>
+    </div>
+    <div class="scan-actions">
+      <button class="btn btn-primary" onclick="addScannedDrug()">✅ 添加到我的用药</button>
+      <button class="btn btn-ghost" onclick="resetScan()">重新扫码</button>
+    </div>
+  </div>
+
+  <button class="btn btn-ghost" onclick="showPage('home')" style="margin-top:12px;">← 返回首页</button>
+</div>
+
 <!-- ==================== 记录页 ==================== -->
 <div id="page-history" class="page">
   <div class="section-title" style="margin-top:0;">📋 用药记录</div>
@@ -1355,6 +2016,16 @@ body {
   <div class="alcohol-toggle" id="alcohol-toggle">
     <span class="at-label">🍷 今天是否饮酒？</span>
     <button class="at-btn off" id="alcohol-btn" onclick="toggleAlcohol()">未饮酒</button>
+  </div>
+
+  <!-- AI 用药风险预测 -->
+  <div class="ai-risk-card" id="ai-risk-card" style="display:none;">
+    <div class="ai-risk-header">
+      <span class="ai-risk-badge">🔮 AI 风险预测</span>
+      <span class="ai-risk-level" id="ai-risk-level"></span>
+    </div>
+    <div class="ai-risk-content" id="ai-risk-content"></div>
+    <div class="ai-risk-suggestion" id="ai-risk-suggestion"></div>
   </div>
 
   <!-- 今天用药安全检查 -->
@@ -1411,9 +2082,27 @@ body {
   <div class="section-title">⏰ 用药时间线</div>
   <div id="family-timeline"></div>
 
+  <button class="btn btn-secondary weekly-report-btn" onclick="generateWeeklyReport()">
+    📊 生成本周用药周报
+  </button>
+
   <button class="btn btn-ghost" onclick="showPage('home')" style="margin-top:16px;">← 返回首页</button>
   </div><!-- /family-report-section -->
 </div>
+<!-- ==================== 周报卡片弹窗 ==================== -->
+<div class="alert-overlay" id="report-overlay" style="display:none;">
+  <div class="report-popup">
+    <div class="report-close" onclick="closeReport()">✕</div>
+    <div class="report-title">📊 本周用药周报</div>
+    <canvas id="report-canvas" width="360" height="520"></canvas>
+    <div class="report-actions">
+      <button class="btn btn-primary" onclick="saveReportImage()">💾 保存图片</button>
+      <button class="btn btn-ghost" onclick="closeReport()">关闭</button>
+    </div>
+    <div class="report-hint">长按图片可保存到相册，分享到家庭群</div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ==================== 配对码弹窗（患者端） ==================== -->
@@ -1819,7 +2508,397 @@ const DRUG_DB = {
     contraindication: "高钙血症不能用，多喝水防便秘",
     contraindication_detail: "高钙血症、高尿酸血症患者禁用。可能引起便秘，建议多饮水。与甲状腺激素类药物同服需间隔至少2小时。",
     side_effects: "便秘、腹胀",
-    elderly_explanation: "这是补钙的药，保护骨头。每天饭后吃1-2片，多喝水防便秘。"
+    elderly_explanation: "这是补钙的药，保护骨头。每天饭后吃1-2片，多喝水防便秘。"  },
+  
+  "telmisartan": {
+    id: "telmisartan",
+    name: "替米沙坦片",
+    brand_names: ["美卡素", "诺金平"],
+    drug_class: "血管紧张素II受体拮抗剂",
+    plain_class: "降血压的药",
+    frequency: "每天1次",
+    timing: "每天固定时间，建议清晨",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次40mg（1片），每日1次；最大80mg/日",
+    contraindication: "怀孕不能吃，胆道疾病慎用",
+    contraindication_detail: "妊娠中晚期禁用。胆道阻塞性疾病患者慎用（经胆汁排泄）。可能引起高钾血症，定期监测。严重肝功能不全者禁用。",
+    side_effects: "头晕、腹泻、高钾血症",
+    elderly_explanation: "这是降血压的药。每天早上固定时间吃1片。有胆结石或者肝病的要告诉医生。定期查血钾。怀孕不能吃。"
+  },
+  "perindopril": {
+    id: "perindopril",
+    name: "培哚普利叔丁胺片",
+    brand_names: ["雅施达"],
+    drug_class: "血管紧张素转换酶抑制剂",
+    plain_class: "降血压、保护心脏的药",
+    frequency: "每天1次",
+    timing: "每天清晨饭前",
+    meal_relation: "必须饭前空腹吃",
+    dosage: "每次4mg（1片），每日1次；可增至8mg/日",
+    contraindication: "可能干咳，怀孕不能吃，脸肿要停药",
+    contraindication_detail: "常见不良反应为干咳（约10-20%），如持续干咳影响生活应就医换药。妊娠禁用。如出现面部、嘴唇、舌头肿胀（血管性水肿）应立即停药急诊。用药初期监测肾功能和血钾。",
+    side_effects: "干咳、头晕、高钾血症、血管性水肿",
+    elderly_explanation: "这是降血压、保护心脏的药。每天早上空腹吃1片。有的人吃了会干咳，如果咳得厉害要去看医生换药。如果脸、嘴唇肿了，立刻停药去医院。怀孕不能吃。"
+  },
+  "furosemide": {
+    id: "furosemide",
+    name: "呋塞米片",
+    brand_names: ["速尿"],
+    drug_class: "袢利尿剂",
+    plain_class: "利尿、消水肿、降血压的药",
+    frequency: "每天1-2次",
+    timing: "早晨和/或中午，不要晚上吃",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次20mg（1片），每日1-2次，遵医嘱",
+    contraindication: "会丢钾，多吃香蕉橙子，定期查血钾",
+    contraindication_detail: "强效利尿剂，可能引起低钾血症、低钠血症、脱水。用药期间定期监测电解质。建议早晨服用，避免夜间排尿影响睡眠。痛风患者慎用。无尿者禁用。",
+    side_effects: "低钾、低钠、脱水、头晕、尿酸升高",
+    elderly_explanation: "这是利尿消水肿的药，也能降血压。早上或中午吃，别晚上吃（会起夜）。吃这个药容易缺钾，多吃香蕉、橙子。定期去医院查血钾。"
+  },
+  "spironolactone": {
+    id: "spironolactone",
+    name: "螺内酯片",
+    brand_names: ["安体舒通"],
+    drug_class: "保钾利尿剂",
+    plain_class: "利尿、消水肿的药（不丢钾）",
+    frequency: "每天1-2次",
+    timing: "每天固定时间",
+    meal_relation: "饭后吃减少胃刺激",
+    dosage: "每次20-40mg（1-2片），每日1-2次，遵医嘱",
+    contraindication: "高钾血症不能用，不要和补钾药一起吃",
+    contraindication_detail: "保钾利尿剂，与其他降压药合用可能引起高钾血症。高钾血症、严重肾功能不全者禁用。不可与补钾剂或含钾代盐同用。男性长期使用可能出现乳房胀痛。",
+    side_effects: "高钾血症、男性乳房发育、胃肠道反应",
+    elderly_explanation: "这是消水肿的药，跟速尿不一样，这个不丢钾。每天饭后吃。不要自己补钾片，也不要用低钠盐（含钾）。定期查血钾。男的吃久了可能乳房有点胀，告诉医生。"
+  },
+  "hydrochlorothiazide": {
+    id: "hydrochlorothiazide",
+    name: "氢氯噻嗪片",
+    brand_names: ["双氢克尿噻"],
+    drug_class: "噻嗪类利尿剂",
+    plain_class: "利尿、降血压的药",
+    frequency: "每天1次",
+    timing: "早晨服用",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次12.5-25mg（半片-1片），每日1次",
+    contraindication: "会丢钾丢钠，痛风慎用，定期查电解质",
+    contraindication_detail: "可能引起低钾血症、低钠血症、高尿酸血症。痛风患者慎用，可能诱发痛风发作。糖尿病患者可能影响血糖控制。用药期间定期监测电解质、血糖、尿酸。",
+    side_effects: "低钾、低钠、高尿酸、血糖升高",
+    elderly_explanation: "这是利尿降血压的药。早上吃1片，别晚上吃。会丢钾，多吃香蕉橙子。有痛风的要告诉医生，这个药可能诱发痛风。定期查血。"
+  },
+  "acarbose": {
+    id: "acarbose",
+    name: "阿卡波糖片",
+    brand_names: ["拜唐苹", "卡博平"],
+    drug_class: "α-葡萄糖苷酶抑制剂",
+    plain_class: "降血糖的药（降餐后血糖）",
+    frequency: "每天3次",
+    timing: "吃第一口饭的时候一起吃",
+    meal_relation: "必须和第一口饭一起嚼服",
+    dosage: "每次50mg（1片），每日3次，随第一口饭嚼服；可增至100mg/次",
+    contraindication: "会胀气放屁，肠梗阻不能用，吃饭时必须吃药",
+    contraindication_detail: "必须随第一口饭嚼服，不吃饭则不服药。常见胃肠道反应（腹胀、排气增多），从小剂量开始可减轻。肠梗阻、严重消化不良者禁用。如发生低血糖，需用葡萄糖纠正，吃馒头饼干无效。",
+    side_effects: "腹胀、排气增多、腹泻",
+    elderly_explanation: "这是降血糖的药，专门降饭后血糖。吃第一口饭的时候把药嚼碎一起吃下去，不吃饭就不吃药。刚开始可能会胀气、放屁多，慢慢就好了。如果出现心慌出汗（低血糖），要喝糖水，吃馒头没用。"
+  },
+  "repaglinide": {
+    id: "repaglinide",
+    name: "瑞格列奈片",
+    brand_names: ["诺和龙", "孚来迪"],
+    drug_class: "格列奈类胰岛素促泌剂",
+    plain_class: "降血糖的药（饭前吃，不吃饭不吃）",
+    frequency: "每天2-3次",
+    timing: "饭前15分钟内服用",
+    meal_relation: "饭前15分钟内吃，不吃饭不服药",
+    dosage: "每次0.5-2mg，每日2-3次，饭前15分钟内服用",
+    contraindication: "不吃饭就别吃药，防止低血糖",
+    contraindication_detail: "餐时血糖调节剂，必须在饭前15分钟内服用，不进餐则不服药，以免低血糖。1型糖尿病、糖尿病酮症酸中毒者禁用。肝功能不全者慎用。注意监测血糖，避免低血糖。",
+    side_effects: "低血糖、腹痛、腹泻",
+    elderly_explanation: "这是降血糖的药。吃饭前15分钟内吃，不吃饭就别吃药（不然会低血糖）。如果出现心慌、出汗、手抖，赶紧吃点糖。定期查血糖。"
+  },
+  "dapagliflozin": {
+    id: "dapagliflozin",
+    name: "达格列净片",
+    brand_names: ["安达唐"],
+    drug_class: "SGLT2抑制剂",
+    plain_class: "降血糖、保护心脏和肾脏的药",
+    frequency: "每天1次",
+    timing: "每天固定时间，建议早晨",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次10mg（1片），每日1次",
+    contraindication: "多喝水防泌尿感染，注意私处卫生",
+    contraindication_detail: "通过尿排糖降低血糖，可能增加泌尿生殖系统感染风险，建议多饮水、注意个人卫生。可能引起低血压（尤其与利尿剂合用）。严重肾功能不全者不适用。罕见酮症酸中毒，如出现恶心呕吐腹痛呼吸深快应立即就医。",
+    side_effects: "泌尿生殖系统感染、低血压、酮症酸中毒（罕见）",
+    elderly_explanation: "这是降血糖的药，还能保护心脏和肾脏。每天早上吃1片。多喝水，注意卫生，防止尿路感染。如果出现恶心、呕吐、肚子疼、呼吸变深变快，赶紧去医院。"
+  },
+  "simvastatin": {
+    id: "simvastatin",
+    name: "辛伐他汀片",
+    brand_names: ["舒降之", "京必舒新"],
+    drug_class: "他汀类调脂药",
+    plain_class: "降血脂、保护血管的药",
+    frequency: "每天1次",
+    timing: "晚上睡前服用",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次20mg（1片），每晚睡前服用；可遵医嘱调整",
+    contraindication: "晚上吃，不要喝西柚汁，肌肉酸痛要告诉医生",
+    contraindication_detail: "他汀类药物建议晚间服用（胆固醇夜间合成旺盛）。避免与葡萄柚汁同服（增加血药浓度）。如出现不明原因的肌肉酸痛、无力，尤其伴发热或尿色变深，应立即停药就医（横纹肌溶解风险）。定期监测肝功能和肌酸激酶。",
+    side_effects: "肌肉酸痛、肝功能异常、胃肠道不适",
+    elderly_explanation: "这是降血脂、保护血管的药。晚上睡觉前吃。不要喝西柚汁。如果出现肌肉酸痛、无力，或者小便颜色变深，赶紧停药去医院。定期查肝功能。"
+  },
+  "fenofibrate": {
+    id: "fenofibrate",
+    name: "非诺贝特胶囊",
+    brand_names: ["力平之", "利必非"],
+    drug_class: "贝特类调脂药",
+    plain_class: "降甘油三酯的药",
+    frequency: "每天1次",
+    timing: "随餐服用",
+    meal_relation: "必须和饭一起吃",
+    dosage: "每次200mg（1粒），每日1次，随餐服用",
+    contraindication: "和他汀类一起吃要小心肌肉问题，胆结石慎用",
+    contraindication_detail: "主要降低甘油三酯。与他汀类药物合用增加肌病风险，需在医生指导下使用并监测肌酸激酶。胆囊疾病史者慎用。可能引起肝功能异常，定期监测。严重肝肾功能不全者禁用。",
+    side_effects: "胃肠道不适、肝功能异常、肌痛",
+    elderly_explanation: "这是专门降甘油三酯的药。吃饭的时候一起吃。如果同时在吃降血脂的他汀药，要告诉医生，两个一起吃可能伤肌肉。有胆结石的也要告诉医生。定期查肝功能。"
+  },
+  "rabeprazole": {
+    id: "rabeprazole",
+    name: "雷贝拉唑钠肠溶片",
+    brand_names: ["波利特", "瑞波特"],
+    drug_class: "质子泵抑制剂",
+    plain_class: "治胃病、抑制胃酸的药",
+    frequency: "每天1次",
+    timing: "早餐前30分钟",
+    meal_relation: "早饭前半小时空腹吃",
+    dosage: "每次10-20mg（1-2片），每日1次，早餐前30分钟服用",
+    contraindication: "整片吞服不要嚼碎，长期吃要查骨密度",
+    contraindication_detail: "肠溶片需整片吞服，不可咀嚼或压碎。建议早餐前30分钟服用以达到最佳抑酸效果。长期使用（>1年）可能增加骨折风险和肠道感染风险，需定期评估。与氯吡格雷合用可能降低其抗血小板效果。",
+    side_effects: "头痛、腹泻、恶心、长期使用骨折风险",
+    elderly_explanation: "这是治胃病、抑制胃酸的药。早饭前半小时空腹吃，整片吞下去别嚼碎。不要长期自己买来吃，吃久了可能影响骨头。如果同时在吃防血栓的药（氯吡格雷），要告诉医生。"
+  },
+  "pantoprazole": {
+    id: "pantoprazole",
+    name: "泮托拉唑钠肠溶片",
+    brand_names: ["潘妥洛克", "泮立苏"],
+    drug_class: "质子泵抑制剂",
+    plain_class: "治胃病、抑制胃酸的药",
+    frequency: "每天1次",
+    timing: "早餐前30分钟",
+    meal_relation: "早饭前半小时空腹吃",
+    dosage: "每次40mg（1片），每日1次，早餐前30分钟服用",
+    contraindication: "整片吞服，与氯吡格雷相互作用小",
+    contraindication_detail: "肠溶片需整片吞服。建议早餐前30分钟服用。与奥美拉唑相比，泮托拉唑与氯吡格雷的相互作用较小，更适合需要同时服用氯吡格雷的患者。长期使用需监测骨密度和维生素B12。",
+    side_effects: "头痛、腹泻、恶心",
+    elderly_explanation: "这是治胃病的药。早饭前半小时空腹吃，整片吞下去。如果同时在吃防血栓的药（氯吡格雷），这个药比奥美拉唑更合适。不要长期自己吃。"
+  },
+  "hydrotalcite": {
+    id: "hydrotalcite",
+    name: "铝碳酸镁咀嚼片",
+    brand_names: ["达喜", "威地美"],
+    drug_class: "抗酸药",
+    plain_class: "中和胃酸、保护胃黏膜的药",
+    frequency: "每天3次，按需服用",
+    timing: "饭后1-2小时或胃痛时",
+    meal_relation: "饭后1-2小时嚼碎服用",
+    dosage: "每次1-2片，每日3次，饭后1-2小时嚼碎服用；胃痛时可临时加服",
+    contraindication: "嚼碎吃，不要和其他药同时吃（间隔1-2小时）",
+    contraindication_detail: "咀嚼片需嚼碎后服用。可快速中和胃酸，缓解胃痛、反酸。与其他药物同服可能影响吸收，应间隔1-2小时。严重肾功能不全者慎用（铝蓄积风险）。可能引起便秘或腹泻。",
+    side_effects: "便秘或腹泻、铝蓄积（肾功不全者）",
+    elderly_explanation: "这是治胃痛、反酸的药，嚼碎了吃。饭后1-2小时吃，或者胃疼的时候临时吃。不要和其他药同时吃，间隔1-2小时。肾功能不好的要告诉医生。"
+  },
+  "mosapride": {
+    id: "mosapride",
+    name: "枸橼酸莫沙必利片",
+    brand_names: ["加斯清", "快力"],
+    drug_class: "促胃肠动力药",
+    plain_class: "促进胃蠕动、帮助消化的药",
+    frequency: "每天3次",
+    timing: "饭前15-30分钟",
+    meal_relation: "饭前半小时吃",
+    dosage: "每次5mg（1片），每日3次，饭前15-30分钟服用",
+    contraindication: "饭前吃，有肠梗阻、胃肠出血不能用",
+    contraindication_detail: "促胃肠动力药，饭前服用效果最佳。胃肠道出血、肠梗阻、穿孔者禁用。可能引起腹泻、腹痛。与抗胆碱药合用会降低效果，应间隔使用。服用2周后症状无改善应停药就医。",
+    side_effects: "腹泻、腹痛、头晕",
+    elderly_explanation: "这是促进胃蠕动、帮助消化的药。饭前半小时吃1片。如果有肠梗阻、胃出血，不能吃这个药。吃了可能有点拉肚子。吃两周还不见好就去看医生。"
+  },
+  "celecoxib": {
+    id: "celecoxib",
+    name: "塞来昔布胶囊",
+    brand_names: ["西乐葆"],
+    drug_class: "选择性COX-2抑制剂",
+    plain_class: "止痛消炎的药（对胃刺激小）",
+    frequency: "每天1-2次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次200mg（1粒），每日1次；或每次100mg，每日2次",
+    contraindication: "对磺胺过敏不能用，心脏病慎用，不要和阿司匹林一起吃",
+    contraindication_detail: "对磺胺类药物过敏者禁用（结构含磺胺基团）。心血管疾病患者慎用，可能增加心血管事件风险。与阿司匹林合用增加胃肠道出血风险，且抵消阿司匹林的心血管保护作用。活动性消化道溃疡/出血者禁用。",
+    side_effects: "心血管事件风险、胃肠道反应、水肿",
+    elderly_explanation: "这是止痛消炎的药，比布洛芬对胃刺激小。每天吃1-2次。如果对磺胺类药物过敏，不能吃这个药。有心脏病的要告诉医生。不要和阿司匹林一起吃。"
+  },
+  "alendronate": {
+    id: "alendronate",
+    name: "阿仑膦酸钠片",
+    brand_names: ["福善美", "固邦"],
+    drug_class: "双膦酸盐类抗骨质疏松药",
+    plain_class: "治疗骨质疏松、防骨折的药",
+    frequency: "每周1次",
+    timing: "每周固定一天，早晨空腹",
+    meal_relation: "必须早晨空腹，用一大杯白水送服，服药后30分钟内不要躺下",
+    dosage: "每周1次，每次70mg（1片），早晨空腹用200ml白水送服",
+    contraindication: "吃完必须站着或坐着30分钟，不能嚼碎，食道病不能用",
+    contraindication_detail: "必须在每周固定一天的早晨空腹服用，用约200ml白水送服（不可用矿泉水、茶、咖啡）。服药后至少30分钟内不要躺下、不要进食、不要服用其他药物（避免食道刺激）。不可咀嚼或吮吸。食道疾病、严重肾功能不全、低钙血症者禁用。如出现吞咽困难、胸痛、胃灼热加重应停药就医。",
+    side_effects: "食道刺激、胃肠道反应、低钙血症",
+    elderly_explanation: "这是治疗骨质疏松、防骨折的药。每周固定一天早上吃，空腹用一大杯白开水送服。吃完后必须站着或坐着至少30分钟，不能躺下，不能吃东西，也不能吃其他药。整片吞下去别嚼。如果出现嗓子疼、胸口疼、烧心加重，赶紧去医院。"
+  },
+  "calcitriol": {
+    id: "calcitriol",
+    name: "骨化三醇胶丸",
+    brand_names: ["罗盖全"],
+    drug_class: "活性维生素D",
+    plain_class: "活性维生素D，帮助钙吸收",
+    frequency: "每天1-2次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次0.25μg（1粒），每日1-2次",
+    contraindication: "定期查血钙，高钙血症不能用，不要和普通维生素D重复吃",
+    contraindication_detail: "活性维生素D，无需肝肾活化即可发挥作用。用药期间需定期监测血钙和尿钙，防止高钙血症。高钙血症、维生素D中毒者禁用。不可与普通维生素D制剂同时服用（避免过量）。与噻嗪类利尿剂合用增加高钙风险。",
+    side_effects: "高钙血症、头痛、恶心",
+    elderly_explanation: "这是活性维生素D，帮助钙吸收的。每天吃1-2粒。定期去医院查血钙。不要同时再吃普通的维生素D（会过量）。如果出现恶心、头痛、口渴多尿，可能是钙高了，去医院。"
+  },
+  "tamsulosin": {
+    id: "tamsulosin",
+    name: "盐酸坦索罗辛缓释胶囊",
+    brand_names: ["哈乐", "齐索"],
+    drug_class: "α1受体阻滞剂",
+    plain_class: "治前列腺增生、改善排尿的药",
+    frequency: "每天1次",
+    timing: "每天固定时间，建议饭后",
+    meal_relation: "饭后吃，整粒吞服不要嚼碎",
+    dosage: "每次0.2mg（1粒），每日1次，饭后服用",
+    contraindication: "缓释胶囊整粒吞，站起来慢点防头晕",
+    contraindication_detail: "缓释胶囊需整粒吞服，不可咀嚼、掰开或压碎。可能引起体位性低血压（突然站起时头晕），起床和站立时动作要慢。与降压药合用可能增强降压效果。注意不要与西咪替丁同用（增加血药浓度）。",
+    side_effects: "头晕、体位性低血压、鼻塞",
+    elderly_explanation: "这是治前列腺增生、让小便顺畅的药。每天饭后吃1粒，整粒吞下去别嚼碎。站起来的时候慢一点，不然可能头晕。如果同时在吃降压药，要告诉医生。"
+  },
+  "finasteride": {
+    id: "finasteride",
+    name: "非那雄胺片",
+    brand_names: ["保列治", "启悦"],
+    drug_class: "5α-还原酶抑制剂",
+    plain_class: "缩小前列腺、改善排尿的药",
+    frequency: "每天1次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次5mg（1片），每日1次",
+    contraindication: "女性不能碰（孕妇接触会致畸），起效慢需3-6个月",
+    contraindication_detail: "通过缩小前列腺体积改善排尿，起效较慢，通常需连续服用3-6个月才能看到明显效果，不可自行停药。孕妇或可能怀孕的女性不可接触破碎的药片（可经皮肤吸收致畸）。可能引起性功能障碍（发生率约2-3%），停药后可恢复。",
+    side_effects: "性功能障碍、乳房不适、皮疹",
+    elderly_explanation: "这是缩小前列腺、让小便顺畅的药。每天吃1片。这个药起效慢，要连续吃3-6个月才见效，别吃几天觉得没用就停。可能会影响性功能，发生率不高，停药后能恢复。家里有孕妇的，不要让她碰到碎了的药片。"
+  },
+  "nitroglycerin": {
+    id: "nitroglycerin",
+    name: "硝酸甘油片",
+    brand_names: ["耐较咛"],
+    drug_class: "硝酸酯类抗心绞痛药",
+    plain_class: "心脏病急救药，心绞痛发作时含服",
+    frequency: "按需使用",
+    timing: "心绞痛发作时立即舌下含服",
+    meal_relation: "舌下含服，不要吞",
+    dosage: "心绞痛发作时，舌下含服0.5mg（1片）；5分钟不缓解可再含1片，最多3片",
+    contraindication: "舌下含服不要吞，含药时坐着，3片不缓解立刻打120",
+    contraindication_detail: "急救用药，心绞痛发作时立即舌下含服（不要吞服）。含服时应取坐位（可能引起低血压头晕）。如5分钟不缓解可再含1片，15分钟内最多含3片，仍不缓解或加重应立即拨打120（可能是心肌梗死）。禁用于心肌梗死早期、严重低血压、青光眼。药片应避光保存于棕色小瓶，开封后3-6个月失效。",
+    side_effects: "头痛、面部潮红、低血压、头晕",
+    elderly_explanation: "这是心脏病急救药。胸口疼的时候，立刻放舌头底下含着，不要吞下去。含药时坐着别动（可能头晕）。如果5分钟不缓解，再含1片。含了3片还疼，立刻打120！这个药要放在棕色小瓶子里避光保存，开封半年就失效了，要定期换新的。"
+  },
+  "isosorbide_mononitrate": {
+    id: "isosorbide_mononitrate",
+    name: "单硝酸异山梨酯片",
+    brand_names: ["欣康", "依姆多"],
+    drug_class: "硝酸酯类抗心绞痛药",
+    plain_class: "预防心绞痛、扩张血管的药",
+    frequency: "每天2次",
+    timing: "早晚服用，间隔7-8小时",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次20mg（1片），每日2次，早晚间隔7-8小时",
+    contraindication: "不要和伟哥类药一起吃（会严重低血压），头痛是常见反应",
+    contraindication_detail: "用于预防心绞痛发作（不是急救药）。严禁与西地那非（伟哥）等磷酸二酯酶抑制剂合用，可导致严重低血压甚至休克。常见头痛（血管扩张所致），通常持续用药1-2周后逐渐减轻。严重低血压、青光眼、肥厚型心肌病者禁用。应保持每日8-12小时的低药浓度期，避免耐药。",
+    side_effects: "头痛、面部潮红、低血压",
+    elderly_explanation: "这是预防心绞痛的药，不是急救药。早晚各吃1片，间隔7-8小时。刚开始吃可能头痛，吃一两周就好了。绝对不能和伟哥类的药一起吃，会血压骤降很危险。如果出现头痛，可以问问医生要不要减量。"
+  },
+  "trimetazidine": {
+    id: "trimetazidine",
+    name: "盐酸曲美他嗪片",
+    brand_names: ["万爽力", "根克通"],
+    drug_class: "心肌细胞代谢改善药",
+    plain_class: "营养心脏、改善心肌供血的药",
+    frequency: "每天3次",
+    timing: "三餐时服用",
+    meal_relation: "吃饭时吃",
+    dosage: "每次20mg（1片），每日3次，三餐时服用",
+    contraindication: "帕金森病不能用，可能手抖，吃饭时吃",
+    contraindication_detail: "改善心肌细胞能量代谢，用于心绞痛辅助治疗。帕金森病、震颤、严重肾功能不全者禁用。可能引起运动障碍（震颤、步态不稳），尤其是老年人，如出现应停药。不用于心绞痛急性发作（不能替代硝酸甘油）。",
+    side_effects: "震颤、运动障碍、胃肠道不适",
+    elderly_explanation: "这是营养心脏、改善心肌供血的药。吃饭的时候吃，每天3次。有帕金森病的不能吃。如果出现手抖、走路不稳，赶紧停药去医院。这个药不能代替硝酸甘油急救，胸痛发作还是要含硝酸甘油。"
+  },
+  "mecobalamin": {
+    id: "mecobalamin",
+    name: "甲钴胺片",
+    brand_names: ["弥可保", "怡神保"],
+    drug_class: "维生素B12活性形式",
+    plain_class: "营养神经的药",
+    frequency: "每天3次",
+    timing: "每天固定时间",
+    meal_relation: "饭前饭后都可以",
+    dosage: "每次0.5mg（1片），每日3次",
+    contraindication: "副作用少，吃1个月不见效就不用长期吃",
+    contraindication_detail: "维生素B12的活性形式，用于周围神经病（如手脚麻木、糖尿病神经病变）。副作用较少，偶见食欲不振、恶心。如服用1个月后仍无效果，不应盲目长期服用。与其他药物相互作用少。从事汞及其化合物工作的人员不宜长期大量服用。",
+    side_effects: "食欲不振、恶心、腹泻",
+    elderly_explanation: "这是营养神经的药，手脚麻木可以吃。每天3次，每次1片。副作用很少。如果吃了1个月还不见效，就不用长期吃了。"
+  },
+  "ginkgo_biloba": {
+    id: "ginkgo_biloba",
+    name: "银杏叶片",
+    brand_names: ["金纳多", "天保宁", "舒血宁"],
+    drug_class: "植物提取物（改善循环）",
+    plain_class: "改善脑部血液循环、帮助记忆力的药",
+    frequency: "每天3次",
+    timing: "饭后服用",
+    meal_relation: "饭后吃",
+    dosage: "每次1-2片，每日3次，饭后服用",
+    contraindication: "和抗凝药一起吃要小心出血风险，手术前要停药",
+    contraindication_detail: "银杏叶提取物，用于改善脑部和外周血液循环，辅助改善认知功能。与阿司匹林、华法林、氯吡格雷等抗凝/抗血小板药合用可能增加出血风险，需告知医生。手术前应提前停药。对银杏过敏者禁用。偶见胃肠道不适、头痛。",
+    side_effects: "胃肠道不适、头痛、出血风险（与抗凝药合用）",
+    elderly_explanation: "这是改善脑部血液循环、帮助记忆力的药。饭后吃，每天3次。如果同时在吃阿司匹林、华法林等防血栓的药，要告诉医生，一起吃可能增加出血风险。做手术前要停药。"
+  },
+    "mirtazapine": {
+    id: "mirtazapine",
+    name: "米氮平片",
+    brand_names: ["瑞美隆", "米尔宁"],
+    drug_class: "去甲肾上腺素能和特异性5-HT能抗抑郁药",
+    plain_class: "改善情绪和睡眠的药",
+    frequency: "每天1次",
+    timing: "临睡前服用",
+    meal_relation: "饭前饭后都可以",
+    dosage: "起始每次15mg（半片），每晚睡前服用；可增至30-45mg/日",
+    contraindication: "睡前吃，可能嗜睡发胖，不要突然停药",
+    contraindication_detail: "适用于老年抑郁伴睡眠障碍和体重下降者。常见不良反应为嗜睡、食欲增加和体重增加。不可突然停药，需逐渐减量。与酒精、苯二氮卓类合用加重中枢抑制。粒细胞缺乏罕见但严重，如出现发热、咽痛应立即就医查血常规。",
+    side_effects: "嗜睡、食欲增加、体重增加、头晕",
+    elderly_explanation: "这是改善情绪和睡眠的药。每天睡前吃半片开始。吃了可能犯困、胃口变好、体重增加，这是正常的。不要自己突然停药，要慢慢减。如果出现发烧、嗓子疼，赶紧去医院查血。"
+  },
+"compound_danshen": {
+    id: "compound_danshen",
+    name: "复方丹参滴丸",
+    brand_names: ["天士力"],
+    drug_class: "中成药（活血化瘀）",
+    plain_class: "活血化瘀、理气止痛的中成药",
+    frequency: "每天3次，或心绞痛发作时舌下含服",
+    timing: "饭后服用，急救时舌下含服",
+    meal_relation: "饭后吃，急救时舌下含服",
+    dosage: "每次10丸，每日3次，饭后服用；心绞痛发作时可舌下含服10丸",
+    contraindication: "和抗凝药一起吃要小心，孕妇慎用",
+    contraindication_detail: "中成药，主要成分丹参、三七、冰片，用于气滞血瘀所致的胸痹（冠心病心绞痛）。可饭后吞服，也可在心绞痛发作时舌下含服（起效较快）。与抗凝/抗血小板药合用可能增加出血风险。孕妇慎用。脾胃虚寒者注意胃肠道不适。",
+    side_effects: "胃肠道不适、出血风险（与抗凝药合用）",
+    elderly_explanation: "这是活血化瘀的中成药，用于冠心病胸闷胸痛。饭后吃，每天3次，每次10丸。心绞痛发作时也可以含在舌头底下。如果同时在吃阿司匹林、华法林等药，要告诉医生。孕妇不能吃。"
   }
 };
 
@@ -2323,6 +3402,17 @@ function speakResult() {
   speak(text);
 }
 
+let currentDialect = 'mandarin';
+
+function setDialect(dialect) {
+  currentDialect = dialect;
+  document.querySelectorAll('.dialect-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.dialect === dialect);
+  });
+  const names = { mandarin: '普通话', cantonese: '粤语', sichuan: '四川话' };
+  showToast('已切换为' + names[dialect] + '播报', 'info');
+}
+
 function speak(text) {
   if (!('speechSynthesis' in window)) {
     showToast('您的浏览器不支持语音播报', 'warning');
@@ -2331,15 +3421,42 @@ function speak(text) {
 
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'zh-CN';
-  utterance.rate = 0.8; // 慢速播报，适老化
-  utterance.pitch = 1.0;
-  utterance.volume = 1.0;
 
-  // 尝试选择中文语音
+  // 根据方言设置语音参数
   const voices = window.speechSynthesis.getVoices();
-  const chineseVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('CN'));
-  if (chineseVoice) utterance.voice = chineseVoice;
+  let targetVoice = null;
+  let rate = 0.8;
+  let pitch = 1.0;
+
+  if (currentDialect === 'cantonese') {
+    // 粤语：优先选择粤语语音
+    utterance.lang = 'zh-HK';
+    targetVoice = voices.find(v =>
+      v.lang.includes('HK') || v.lang.includes('yue') ||
+      v.name.toLowerCase().includes('cantonese') || v.name.toLowerCase().includes('粤语')
+    );
+    rate = 0.85;
+    if (!targetVoice) {
+      // 回退到普通话，调整音调模拟
+      targetVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('CN'));
+      pitch = 1.1;
+    }
+  } else if (currentDialect === 'sichuan') {
+    // 四川话：浏览器通常无内置语音，用普通话+慢速+低音调模拟
+    utterance.lang = 'zh-CN';
+    targetVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('CN'));
+    rate = 0.75;
+    pitch = 0.9;
+  } else {
+    // 普通话
+    utterance.lang = 'zh-CN';
+    targetVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('CN'));
+  }
+
+  if (targetVoice) utterance.voice = targetVoice;
+  utterance.rate = rate;
+  utterance.pitch = pitch;
+  utterance.volume = 1.0;
 
   utterance.onstart = () => {
     isSpeaking = true;
@@ -2359,6 +3476,472 @@ function speak(text) {
 
   window.speechSynthesis.speak(utterance);
 }
+
+// ===== AI 用药风险预测 =====
+function analyzeRisk() {
+  // 基于近期用药记录进行AI风险分析（原型：使用模拟分析结果）
+  const card = document.getElementById('ai-risk-card');
+  const levelEl = document.getElementById('ai-risk-level');
+  const contentEl = document.getElementById('ai-risk-content');
+  const suggestionEl = document.getElementById('ai-risk-suggestion');
+
+  // 模拟AI分析结果（实际项目中从用药记录统计分析）
+  const risks = [
+    {
+      level: 'medium',
+      levelText: '中等风险',
+      content: 'AI分析您最近7天的用药记录，发现阿司匹林有2次服药间隔不足6小时，可能增加胃肠道出血风险。',
+      suggestion: '建议：固定服药时间，两次服药至少间隔6小时。如出现胃痛、黑便，请及时就医。'
+    },
+    {
+      level: 'low',
+      levelText: '低风险',
+      content: '您最近一周用药规律，未发现明显风险。继续保持良好的用药习惯。',
+      suggestion: '建议：继续按医嘱服药，定期复查肝肾功能。'
+    },
+    {
+      level: 'high',
+      levelText: '高风险',
+      content: 'AI检测到您本周有1次严重药物冲突（二甲双胍+酒精），可能导致乳酸酸中毒。同时有3次漏服记录。',
+      suggestion: '建议：服药期间严格禁酒。漏服后不要自行加倍补服，应咨询医生。'
+    }
+  ];
+
+  // 根据当前时间选择不同的风险等级展示（演示用）
+  const day = new Date().getDate();
+  const risk = risks[day % 3];
+
+  card.className = 'ai-risk-card ' + risk.level;
+  levelEl.className = 'ai-risk-level ' + risk.level;
+  levelEl.textContent = risk.levelText;
+  contentEl.textContent = risk.content;
+  suggestionEl.textContent = risk.suggestion;
+  card.style.display = 'block';
+}
+
+// 记录页加载时显示风险分析
+const originalShowPage = showPage;
+showPage = function(page) {
+  originalShowPage(page);
+  if (page === 'history' && isLoggedIn()) {
+    setTimeout(analyzeRisk, 300);
+  }
+};
+
+// ===== AI 个性化用药提醒 =====
+function showAIReminder() {
+  // 基于用户历史用药记录生成今日建议（原型：使用模拟数据）
+  const card = document.getElementById('ai-reminder-card');
+  const contentEl = document.getElementById('ai-reminder-content');
+  const timesEl = document.getElementById('ai-reminder-times');
+
+  // 模拟AI分析结果（实际项目中从用药记录统计）
+  const hour = new Date().getHours();
+  let message = '';
+  let times = [];
+
+  if (hour < 10) {
+    message = '根据您最近一周的用药习惯，建议今天按以下时间服药：';
+    times = ['08:00 降压药', '12:00 降糖药', '20:00 安眠药'];
+  } else if (hour < 14) {
+    message = '您早上的降压药已服用，接下来建议：';
+    times = ['12:00 降糖药', '20:00 安眠药'];
+  } else if (hour < 18) {
+    message = '今天已服药2次，还剩：';
+    times = ['20:00 安眠药'];
+  } else {
+    message = '今天的药快吃完了，别忘了睡前服药：';
+    times = ['20:00 安眠药'];
+  }
+
+  contentEl.textContent = message;
+  timesEl.innerHTML = times.map(t => '<span class="ai-time-chip">⏰ ' + t + '</span>').join('');
+  card.style.display = 'block';
+}
+
+// 页面加载时显示AI提醒（延迟500ms，等首页渲染完成）
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    if (isLoggedIn()) {
+      showAIReminder();
+    }
+  }, 500);
+});
+
+// ===== 家属用药周报（Canvas生成分享卡片） =====
+function generateWeeklyReport() {
+  const overlay = document.getElementById('report-overlay');
+  overlay.style.display = 'flex';
+
+  // 延迟绘制确保canvas可见
+  setTimeout(() => drawReportCard(), 100);
+}
+
+function closeReport() {
+  document.getElementById('report-overlay').style.display = 'none';
+}
+
+function drawReportCard() {
+  const canvas = document.getElementById('report-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // 背景渐变
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#E8F5E9');
+  bg.addColorStop(0.3, '#ffffff');
+  bg.addColorStop(1, '#F1F8E9');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 顶部装饰条
+  ctx.fillStyle = '#00897B';
+  ctx.fillRect(0, 0, W, 8);
+
+  // 标题
+  ctx.fillStyle = '#00695C';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('📊 本周用药周报', W/2, 42);
+
+  // 日期范围
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 6*24*60*60*1000);
+  const dateStr = (weekAgo.getMonth()+1) + '/' + weekAgo.getDate() + ' - ' + (now.getMonth()+1) + '/' + now.getDate();
+  ctx.fillStyle = '#78909C';
+  ctx.font = '13px sans-serif';
+  ctx.fillText(dateStr, W/2, 64);
+
+  // 分隔线
+  ctx.strokeStyle = '#E0E0E0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(30, 80);
+  ctx.lineTo(W-30, 80);
+  ctx.stroke();
+
+  // 统计数据（演示数据）
+  const stats = [
+    { icon: '💊', label: '本周服药', value: '28次', color: '#1565C0' },
+    { icon: '✅', label: '按时服药率', value: '89%', color: '#2E7D32' },
+    { icon: '⚠️', label: '冲突提醒', value: '1次', color: '#E65100' },
+    { icon: '🏥', label: '漏服', value: '3次', color: '#C62828' },
+  ];
+
+  const cardW = 140;
+  const cardH = 70;
+  const startX = 30;
+  const startY = 95;
+  const gapX = 20;
+  const gapY = 14;
+
+  stats.forEach((s, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = startX + col * (cardW + gapX);
+    const y = startY + row * (cardH + gapY);
+
+    // 卡片背景
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = 'rgba(0,0,0,0.08)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+    roundRect(ctx, x, y, cardW, cardH, 10);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+
+    // 图标
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(s.icon, x + 12, y + 32);
+
+    // 数值
+    ctx.fillStyle = s.color;
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(s.value, x + cardW - 12, y + 32);
+
+    // 标签
+    ctx.fillStyle = '#78909C';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(s.label, x + cardW/2, y + 56);
+  });
+
+  // 温馨提示区域
+  const tipY = startY + 2 * (cardH + gapY) + 10;
+  ctx.fillStyle = '#FFF8E1';
+  roundRect(ctx, 30, tipY, W-60, 100, 10);
+  ctx.fill();
+
+  ctx.fillStyle = '#F57F17';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('💡 温馨提示', 44, tipY + 24);
+
+  ctx.fillStyle = '#5D4037';
+  ctx.font = '13px sans-serif';
+  const tips = [
+    '本周有1次药物冲突提醒，',
+    '建议检查二甲双胍与饮酒的间隔。',
+    '继续保持，您的家人服药情况良好！'
+  ];
+  tips.forEach((t, i) => {
+    ctx.fillText(t, 44, tipY + 46 + i * 20);
+  });
+
+  // 底部品牌
+  ctx.fillStyle = '#B0BEC5';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('药忆 · AI 用药助手 · JDXplorers 参赛作品', W/2, H - 24);
+  ctx.fillText('让每一位老人都能安全用药', W/2, H - 10);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function saveReportImage() {
+  const canvas = document.getElementById('report-canvas');
+  const link = document.createElement('a');
+  link.download = '药忆_本周用药周报_' + new Date().toISOString().slice(0,10) + '.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  showToast('周报图片已保存', 'success');
+}
+
+// ===== 扫码加药（京东大药房原型） =====
+let scannedDrug = null;
+const JD_SAMPLE_DRUGS = ["amlodipine", "metformin", "atorvastatin", "aspirin", "omeprazole", "clopidogrel"];
+
+function startScanAdd() {
+  showPage("scan");
+  resetScan();
+}
+
+function resetScan() {
+  document.getElementById("scan-result").style.display = "none";
+  document.getElementById("scan-area").style.display = "flex";
+  document.getElementById("scan-simulate-btn").style.display = "block";
+  document.getElementById("scan-line").style.animation = "scanMove 2s ease-in-out infinite";
+  scannedDrug = null;
+}
+
+function simulateScan() {
+  const btn = document.getElementById("scan-simulate-btn");
+  btn.disabled = true;
+  btn.textContent = "扫描中...";
+
+  setTimeout(() => {
+    const drugId = JD_SAMPLE_DRUGS[Math.floor(Math.random() * JD_SAMPLE_DRUGS.length)];
+    scannedDrug = DRUG_DB[drugId];
+
+    document.getElementById("scan-drug-name").textContent = scannedDrug.name;
+    document.getElementById("scan-drug-spec").textContent =
+      (scannedDrug.brand_names[0] || "") + " · " + scannedDrug.drug_class;
+    document.getElementById("scan-drug-usage").textContent =
+      scannedDrug.frequency + " · " + scannedDrug.timing;
+
+    document.getElementById("scan-area").style.display = "none";
+    document.getElementById("scan-simulate-btn").style.display = "none";
+    document.getElementById("scan-result").style.display = "block";
+
+    showToast("扫码成功！已识别药品信息", "success");
+  }, 1500);
+}
+
+function addScannedDrug() {
+  if (!scannedDrug) return;
+  showToast("已将「" + scannedDrug.name + "」添加到我的用药清单", "success");
+  setTimeout(() => {
+    showPage("home");
+  }, 1000);
+}
+
+// ===== 快速体验 & 演示账号 =====
+const DEMO_ACCOUNT = { phone: "13800138000", password: "demo123456" };
+
+function quickExperience(drugId) {
+  const drug = DRUG_DB[drugId];
+  if (!drug) {
+    showToast("药品数据不存在", "error");
+    return;
+  }
+  // 直接模拟识别结果，跳转到结果页
+  currentDrug = drug;
+  document.getElementById("result-drug-name").textContent = drug.name;
+  document.getElementById("result-drug-class").textContent = drug.plain_class;
+  document.getElementById("result-confidence").textContent = "置信度 95%（演示）";
+  document.getElementById("result-frequency").textContent = drug.frequency;
+  document.getElementById("result-frequency-detail").textContent = drug.dosage;
+  document.getElementById("result-timing").textContent = drug.timing;
+  document.getElementById("result-timing-detail").textContent = "";
+  document.getElementById("result-meal").textContent = drug.meal_relation;
+  document.getElementById("result-meal-detail").textContent = "";
+  document.getElementById("result-contraindication").textContent = drug.contraindication;
+  document.getElementById("result-contraindication-detail").textContent = drug.contraindication_detail;
+
+  // 隐藏重复服药警告和冲突警告（演示模式）
+  document.getElementById("duplicate-alert").style.display = "none";
+  document.getElementById("result-interaction-section").style.display = "none";
+
+  // 重置AI面板
+  document.getElementById("ai-panel").style.display = "none";
+  document.getElementById("ai-answer-area").style.display = "none";
+  document.getElementById("ai-question-input").value = "";
+
+  showPage("result");
+  showToast("已为您展示 " + drug.name + " 的用药说明", "success");
+}
+
+function demoLogin() {
+  // 自动填充演示账号并登录
+  switchAuthMode("login");
+  document.getElementById("auth-phone").value = DEMO_ACCOUNT.phone;
+  document.getElementById("auth-password").value = DEMO_ACCOUNT.password;
+  showToast("正在登录演示账号...", "info");
+  setTimeout(() => {
+    handleAuthSubmit();
+  }, 300);
+}
+
+// ===== AI 用药问答 =====
+let aiAnswerText = '';
+let voiceRecognition = null;
+
+function toggleAIPanel() {
+  const panel = document.getElementById('ai-panel');
+  if (panel.style.display === 'none' || !panel.style.display) {
+    panel.style.display = 'block';
+    document.getElementById('ai-question-input').focus();
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function askQuickQuestion(q) {
+  document.getElementById('ai-question-input').value = q;
+  askAI();
+}
+
+async function askAI() {
+  const input = document.getElementById('ai-question-input');
+  const question = input.value.trim();
+  if (!question) {
+    showToast('请输入你的问题', 'warning');
+    return;
+  }
+  if (!currentDrug) {
+    showToast('请先识别药品', 'warning');
+    return;
+  }
+
+  const loading = document.getElementById('ai-loading');
+  const answerArea = document.getElementById('ai-answer-area');
+  const sendBtn = document.querySelector('.ai-send-btn');
+
+  loading.style.display = 'flex';
+  answerArea.style.display = 'none';
+  sendBtn.disabled = true;
+
+  try {
+    // 直接用 POST 发送（drugInfo 可能较大）
+    const resp = await fetch(apiUrl('/api/ask'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: question,
+        drugInfo: currentDrug,
+      }),
+    });
+
+    const result = await resp.json();
+    if (result.error) {
+      showToast('AI回答失败：' + result.error, 'error');
+    } else {
+      aiAnswerText = result.answer;
+      document.getElementById('ai-answer-text').textContent = result.answer;
+      answerArea.style.display = 'block';
+    }
+  } catch (e) {
+    showToast('网络错误，请重试', 'error');
+    console.error('AI ask error:', e);
+  } finally {
+    loading.style.display = 'none';
+    sendBtn.disabled = false;
+  }
+}
+
+function speakAIAnswer() {
+  if (!aiAnswerText) return;
+  speak(aiAnswerText);
+}
+
+function startVoiceInput() {
+  const btn = document.querySelector('.ai-voice-input-btn');
+  const input = document.getElementById('ai-question-input');
+
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    showToast('您的浏览器不支持语音输入，请用文字输入', 'warning');
+    return;
+  }
+
+  if (voiceRecognition && voiceRecognition._listening) {
+    voiceRecognition.stop();
+    return;
+  }
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  voiceRecognition = new SR();
+  voiceRecognition.lang = 'zh-CN';
+  voiceRecognition.continuous = false;
+  voiceRecognition.interimResults = false;
+
+  voiceRecognition.onstart = () => {
+    voiceRecognition._listening = true;
+    btn.classList.add('listening');
+    input.placeholder = '正在聆听...请说话';
+  };
+
+  voiceRecognition.onresult = (event) => {
+    const text = event.results[0][0].transcript;
+    input.value = text;
+  };
+
+  voiceRecognition.onerror = (event) => {
+    showToast('语音识别失败：' + event.error, 'warning');
+  };
+
+  voiceRecognition.onend = () => {
+    voiceRecognition._listening = false;
+    btn.classList.remove('listening');
+    input.placeholder = '输入你的问题...';
+  };
+
+  voiceRecognition.start();
+}
+
+// 回车发送
+document.addEventListener('DOMContentLoaded', () => {
+  const aiInput = document.getElementById('ai-question-input');
+  if (aiInput) {
+    aiInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') askAI();
+    });
+  }
+});
 
 // 预加载语音列表（部分浏览器需要）
 if ('speechSynthesis' in window) {
@@ -2806,7 +4389,7 @@ function showToast(message, type) {
 // ============================================================
 
 // ---- 配置 ----
-const API_BASE = ''; // 同源，Vercel/本地 server.py 自动路由
+const API_BASE = ''; // 同源，EdgeOne Pages/本地 server.py 自动路由
 const MONITOR_DURATION = 30 * 60 * 1000; // 30分钟（毫秒）
 
 // ---- EdgeOne 预览链接 token 持久化（解决刷新丢失、过期提示等问题） ----

@@ -83,6 +83,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._handle_auth()
         elif path == "/api/relation":
             self._handle_relation()
+        elif path == "/api/ask":
+            self._handle_ask()
         else:
             self._send_json(404, {"error": "接口不存在"})
 
@@ -94,6 +96,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._handle_auth()
         elif path == "/api/relation":
             self._handle_relation()
+        elif path == "/api/ask":
+            self._handle_ask()
         else:
             super().do_GET()  # 静态文件
 
@@ -165,6 +169,112 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._send_json(500, {"error": str(e)})
 
     # ---------- 配对码生成与验证 ----------
+    # ---------- AI 用药问答 ----------
+    def _handle_ask(self):
+        try:
+            # 读取请求体（POST）或 query 参数（GET）
+            data = {}
+            if self.command == "POST":
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                if body:
+                    try:
+                        data = json.loads(body)
+                    except:
+                        from urllib.parse import parse_qs
+                        data = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+            else:
+                from urllib.parse import urlparse, parse_qs
+                parsed = urlparse(self.path)
+                data = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+
+            question = (data.get("question", "") or "").strip()
+            drug_info = data.get("drugInfo", None)
+
+            if not question:
+                self._send_json(400, {"error": "缺少问题内容"})
+                return
+
+            if len(question) > 200:
+                self._send_json(400, {"error": "问题太长"})
+                return
+
+            print(f"[AI问答] 问题: {question}")
+
+            # 构建药品信息上下文
+            drug_context = ""
+            if drug_info:
+                if isinstance(drug_info, str):
+                    try:
+                        drug_info = json.loads(drug_info)
+                    except:
+                        drug_info = {}
+                d = drug_info
+                drug_context = f"""
+当前药品信息：
+- 药品名称：{d.get("name", "未知")}
+- 商品名：{"、".join(d.get("brand_names", [])) or "未知"}
+- 类别：{d.get("plain_class", d.get("drug_class", "未知"))}
+- 用法：{d.get("frequency", "")}，{d.get("timing", "")}，{d.get("meal_relation", "")}
+- 剂量：{d.get("dosage", "未知")}
+- 禁忌：{d.get("contraindication", "")}
+- 详细禁忌：{d.get("contraindication_detail", "")}
+- 副作用：{d.get("side_effects", "")}
+- 老人说明：{d.get("elderly_explanation", "")}
+"""
+
+            system_prompt = """你是一位专业、耐心的老年用药顾问，服务对象是阿尔茨海默症患者及其家属。
+
+回答规则：
+1. 用大白话回答，避免专业术语，句子简短，适合老年人理解
+2. 每次回答不超过150字
+3. 涉及剂量调整、换药、停药、联合用药等医疗决策时，必须明确建议"请咨询医生或药师"，不要给出具体剂量调整方案
+4. 如果问题与当前药品无关，可以简单回答并建议咨询医生
+5. 回答末尾固定加上："以上为AI参考，具体请遵医嘱。"
+6. 语气温暖、有同理心，像家人一样关心
+
+请根据以下药品信息和用户问题给出回答。"""
+
+            user_prompt = f"{drug_context}\n用户问题：{question}" if drug_context else f"用户问题：{question}"
+
+            payload = {
+                "model": MODEL_ID,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.3,
+                "max_tokens": 300,
+            }
+
+            resp = requests.post(
+                API_ENDPOINT,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {API_KEY}",
+                },
+                json=payload,
+                timeout=30,
+            )
+
+            if resp.status_code != 200:
+                self._send_json(502, {"error": f"AI服务返回错误 {resp.status_code}", "detail": resp.text[:500]})
+                return
+
+            result = resp.json()
+            answer = result["choices"][0]["message"]["content"].strip()
+
+            if "AI参考" not in answer and "遵医嘱" not in answer:
+                answer += "\n\n以上为AI参考，具体请遵医嘱。"
+
+            self._send_json(200, {"answer": answer, "question": question})
+
+        except Exception as e:
+            print(f"[AI问答] 错误: {e}")
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {"error": str(e)})
+
     def _handle_pair(self):
         try:
             body = self._read_body()
