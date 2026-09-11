@@ -612,6 +612,23 @@ body {
 .missed-alert .ma-desc { font-size: 14px; color: var(--text); }
 
 /* 语音播报按钮 */
+
+.abnormal-alert {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.abnormal-icon { font-size: 20px; }
+.abnormal-text {
+  font-size: 13px;
+  color: #92400e;
+  line-height: 1.5;
+}
 .voice-btn {
   display: flex;
   align-items: center;
@@ -2191,6 +2208,11 @@ body {
     🔊 语音播报
   </button>
 
+  <!-- 异常行为检测提醒 -->
+  <div class="abnormal-alert" id="abnormal-alert" style="display:none;">
+    <div class="abnormal-icon">⚠️</div>
+    <div class="abnormal-text" id="abnormal-text"></div>
+  </div>
   <button class="btn btn-primary" id="confirm-btn" onclick="confirmMedication()">
     ✅ 确认已服用
   </button>
@@ -3523,6 +3545,8 @@ async function finishRecognition() {
     const drug = matchDrug(result);
     if (drug) {
       currentDrug = drug;
+  setTimeout(() => { if (currentDrug) checkAbnormalBehavior(currentDrug.id, currentDrug.name); }, 300);
+  setTimeout(() => { if (currentDrug) checkAbnormalBehavior(currentDrug.id, currentDrug.name); }, 500);
       renderResult(currentDrug);
       showToast('识别完成 ✅', 'success');
     } else {
@@ -4884,6 +4908,33 @@ function changeFamilyDate(offset) {
   familyDateOffset += offset;
   if (familyDateOffset > 0) familyDateOffset = 0; // 不能看未来
   renderFamilyView();
+}
+
+// 异常行为检测：凌晨服药、一天内多次识别同一种药
+function checkAbnormalBehavior(drugId, drugName) {
+  const alertEl = document.getElementById('abnormal-alert');
+  const textEl = document.getElementById('abnormal-text');
+  if (!alertEl) return;
+  const now = new Date();
+  const hour = now.getHours();
+  let warnings = [];
+  // 检测1：凌晨服药（0点-5点）
+  if (hour >= 0 && hour < 5) {
+    warnings.push('现在是凌晨 ' + hour + ' 点，您确定现在服药吗？可能是记错了时间，建议确认后再服用。');
+  }
+  // 检测2：一天内识别同一种药超过2次
+  const records = loadRecords();
+  const todayStr = getTodayStr();
+  const todaySameDrug = records.filter(r => r.date === todayStr && r.drugId === drugId).length;
+  if (todaySameDrug >= 2) {
+    warnings.push('您今天已经识别过 ' + drugName + ' 共 ' + todaySameDrug + ' 次了，请注意不要重复服用。如不确定请咨询家属或医生。');
+  }
+  if (warnings.length > 0) {
+    textEl.innerHTML = warnings.join('<br><br>');
+    alertEl.style.display = 'flex';
+  } else {
+    alertEl.style.display = 'none';
+  }
 }
 
 function confirmMedication() {
