@@ -1231,6 +1231,70 @@ body {
   line-height: 1.6;
   margin-bottom: 10px;
 }
+
+.combo-analysis-card {
+  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 12px 0;
+  border: 1px solid #d0e0ff;
+}
+.combo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.combo-badge {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1a56db;
+}
+.combo-level {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+.combo-level.high { background: #fee2e2; color: #dc2626; }
+.combo-level.medium { background: #fef3c7; color: #d97706; }
+.combo-level.low { background: #d1fae5; color: #059669; }
+.combo-level.safe { background: #e0e7ff; color: #4f46e5; }
+.combo-summary {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.combo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.combo-item {
+  background: white;
+  border-radius: 10px;
+  padding: 10px 12px;
+  border-left: 4px solid;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.combo-item.danger { border-left-color: #dc2626; background: #fef2f2; }
+.combo-item.warning { border-left-color: #f59e0b; background: #fffbeb; }
+.combo-item.caution { border-left-color: #6b7280; background: #f9fafb; }
+.combo-item-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.combo-item.danger .combo-item-title { color: #dc2626; }
+.combo-item.warning .combo-item-title { color: #d97706; }
+.combo-item.caution .combo-item-title { color: #4b5563; }
+.combo-tip {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+  font-style: italic;
+}
 .ai-risk-suggestion {
   font-size: 13px;
   color: #1565C0;
@@ -2026,6 +2090,17 @@ body {
     </div>
     <div class="ai-risk-content" id="ai-risk-content"></div>
     <div class="ai-risk-suggestion" id="ai-risk-suggestion"></div>
+  </div>
+
+  <!-- AI 联合用药分析 -->
+  <div class="combo-analysis-card" id="combo-analysis-card" style="display:none;">
+    <div class="combo-header">
+      <span class="combo-badge">🧬 AI 联合用药分析</span>
+      <span class="combo-level" id="combo-level"></span>
+    </div>
+    <div class="combo-summary" id="combo-summary"></div>
+    <div class="combo-list" id="combo-list"></div>
+    <div class="combo-tip" id="combo-tip"></div>
   </div>
 
   <!-- 今天用药安全检查 -->
@@ -2903,7 +2978,7 @@ const DRUG_DB = {
 };
 
 // ============================================================
-// 药物相互作用规则库（18条，来源：资料包 02_药物冲突规则库.json）
+// 药物相互作用规则库（40条，含药品-药品、药品-酒精、药品-食物）
 // 匹配方式：drug_a / drug_b 为药品名片段，用 includes 匹配 DRUG_DB 中的 name
 // "酒精" 为特殊虚拟项，由用户在记录页手动标记饮酒后触发
 // ============================================================
@@ -2925,7 +3000,29 @@ const INTERACTION_RULES = [
   { id: "INT015", severity: "warning", a: "卡巴拉汀",     b: "美托洛尔",     type: "心率减慢叠加",       desc: "卡巴拉汀（胆碱酯酶抑制剂）可引起心动过缓，与β受体阻滞剂叠加", elderly: "卡巴拉汀和美托洛尔一起吃可能让心跳太慢，要定期数脉搏。" },
   { id: "INT016", severity: "caution", a: "阿托伐他汀",   b: "氨氯地平",     type: "他汀血药浓度轻度升高", desc: "氨氯地平轻度抑制CYP3A4，可能增加阿托伐他汀暴露量", elderly: "降血脂药和降压药氨氯地平一起吃一般没问题，但如果觉得肌肉酸痛要告诉医生。" },
   { id: "INT017", severity: "warning", a: "阿司匹林",     b: "奥美拉唑",     type: "阿司匹林吸收轻度降低", desc: "奥美拉唑升高胃内pH值，可能影响阿司匹林肠溶片的溶解和吸收", elderly: "阿司匹林和奥美拉唑（胃药）一起吃可能影响阿司匹林吸收。阿司匹林空腹吃，奥美拉唑饭前半小时吃，两个药间隔1小时以上。" },
-  { id: "INT018", severity: "caution", a: "甘露特钠",     b: "其他药物",     type: "数据有限",           desc: "甘露特钠为国产创新药，药物相互作用研究数据有限", elderly: "甘露特钠（九期一）是新药，和其他药一起吃的研究还不多，吃之前问问医生。" }
+  { id: "INT018", severity: "caution", a: "甘露特钠",     b: "其他药物",     type: "数据有限",           desc: "甘露特钠为国产创新药，药物相互作用研究数据有限", elderly: "甘露特钠（九期一）是新药，和其他药一起吃的研究还不多，吃之前问问医生。" },
+  { id: "INT019", severity: "danger",  a: "华法林",       b: "阿司匹林",     type: "严重出血风险",         desc: "华法林与阿司匹林联用显著增加出血风险，仅在医生明确指示下使用", elderly: "华法林和阿司匹林一起吃会大大增加出血风险，只有医生让你一起吃才能吃，要注意有没有黑便、牙龈出血、皮肤瘀斑。" },
+  { id: "INT020", severity: "danger",  a: "华法林",       b: "布洛芬",       type: "严重出血风险",         desc: "非甾体抗炎药抑制血小板功能并损伤胃黏膜，与华法林联用出血风险极高", elderly: "华法林和布洛芬一起吃非常危险，会严重增加出血风险。止痛请用对乙酰氨基酚（扑热息痛）。" },
+  { id: "INT021", severity: "warning", a: "华法林",       b: "对乙酰氨基酚", type: "出血风险增加",         desc: "长期大剂量对乙酰氨基酚可能增强华法林抗凝作用，需监测INR", elderly: "华法林和扑热息痛一起吃可能增加出血风险，偶尔吃一次没问题，长期吃要问医生并定期验血。" },
+  { id: "INT022", severity: "warning", a: "华法林",       b: "奥美拉唑",     type: "抗凝效果波动",         desc: "奥美拉唑可能影响华法林代谢，导致INR波动", elderly: "华法林和奥美拉唑一起吃可能影响抗凝效果，要定期验血查INR，不要自己随便加胃药。" },
+  { id: "INT023", severity: "danger",  a: "硝酸甘油",     b: "西地那非",     type: "严重低血压",           desc: "硝酸酯类与PDE5抑制剂联用可导致严重低血压、休克甚至死亡", elderly: "吃硝酸甘油绝对不能吃伟哥（西地那非），会导致血压骤降危及生命！两种药间隔至少24小时。" },
+  { id: "INT024", severity: "danger",  a: "单硝酸异山梨酯", b: "西地那非",   type: "严重低血压",           desc: "长效硝酸酯与PDE5抑制剂联用同样可致严重低血压", elderly: "吃单硝酸异山梨酯也不能吃伟哥，会导致血压骤降，非常危险！" },
+  { id: "INT025", severity: "warning", a: "氨氯地平",     b: "辛伐他汀",     type: "肌肉损伤风险",         desc: "氨氯地平抑制CYP3A4，增加辛伐他汀血药浓度，增加横纹肌溶解风险", elderly: "降压药氨氯地平和降脂药辛伐他汀一起吃可能增加肌肉损伤风险。如果觉得肌肉酸痛无力，马上告诉医生。" },
+  { id: "INT026", severity: "warning", a: "阿托伐他汀",   b: "克拉霉素",     type: "肌肉损伤风险",         desc: "克拉霉素强烈抑制CYP3A4，显著增加他汀血药浓度", elderly: "吃降血脂药期间如果需要吃抗生素克拉霉素，一定要告诉医生，可能需要暂停他汀。" },
+  { id: "INT027", severity: "warning", a: "美托洛尔",     b: "维拉帕米",     type: "严重心动过缓",         desc: "两者均抑制房室传导，联用可致严重心动过缓甚至房室传导阻滞", elderly: "美托洛尔和维拉帕米一起吃可能让心跳太慢甚至停跳，一般不能一起吃，一定要遵医嘱。" },
+  { id: "INT028", severity: "danger",  a: "螺内酯",       b: "培哚普利",     type: "高钾血症风险",         desc: "保钾利尿剂与ACEI联用可致高钾血症，严重时可致心律失常", elderly: "螺内酯和培哚普利一起吃可能导致血钾过高，严重时会引起心跳异常。要定期查血钾，不要随便吃补钾药。" },
+  { id: "INT029", severity: "warning", a: "螺内酯",       b: "缬沙坦",       type: "高钾血症风险",         desc: "保钾利尿剂与ARB联用可致高钾血症", elderly: "螺内酯和缬沙坦一起吃可能导致血钾过高，要定期查血钾，不要自己吃补钾的保健品。" },
+  { id: "INT030", severity: "warning", a: "氢氯噻嗪",     b: "格列美脲",     type: "血糖升高",             desc: "噻嗪类利尿剂可升高血糖，降低降糖药效果", elderly: "利尿药氢氯噻嗪可能让血糖升高，和降糖药一起吃要注意监测血糖，可能需要调整降糖药剂量。" },
+  { id: "INT031", severity: "warning", a: "氢氯噻嗪",     b: "二甲双胍",     type: "血糖影响",             desc: "利尿剂可影响血糖控制，需监测", elderly: "利尿药可能影响血糖，和二甲双胍一起吃要注意测血糖。" },
+  { id: "INT032", severity: "caution", a: "阿卡波糖",     b: "地高辛",       type: "地高辛吸收降低",       desc: "阿卡波糖可能降低地高辛的生物利用度", elderly: "阿卡波糖可能影响地高辛（强心药）的吸收，如果两个药都在吃，要告诉医生。" },
+  { id: "INT033", severity: "warning", a: "雷贝拉唑",     b: "氯吡格雷",     type: "抗血小板效果降低",     desc: "雷贝拉唑抑制CYP2C19，可能降低氯吡格雷活化", elderly: "雷贝拉唑可能降低氯吡格雷（防血栓药）的效果，如果需要吃胃药，问问医生选哪种。" },
+  { id: "INT034", severity: "warning", a: "辛伐他汀",     b: "胺碘酮",       type: "肌肉损伤风险",         desc: "胺碘酮抑制CYP3A4，显著增加辛伐他汀血药浓度", elderly: "辛伐他汀和胺碘酮（抗心律失常药）一起吃可能增加肌肉损伤风险，要告诉医生你在吃他汀。" },
+  { id: "INT035", severity: "warning", a: "非诺贝特",     b: "阿托伐他汀",   type: "肌肉损伤风险叠加",     desc: "贝特类与他汀类联用增加肌病和横纹肌溶解风险", elderly: "非诺贝特和阿托伐他汀一起吃可能增加肌肉损伤风险，如果觉得肌肉酸痛无力要马上告诉医生。" },
+  { id: "INT036", severity: "caution", a: "坦索罗辛",     b: "氨氯地平",     type: "体位性低血压",         desc: "α受体阻滞剂与降压药联用可能加重体位性低血压", elderly: "坦索罗辛（治前列腺的药）和降压药一起吃，起床时可能头晕眼前发黑。起床要慢，先坐一会儿再站。" },
+  { id: "INT037", severity: "caution", a: "阿仑膦酸钠",   b: "碳酸钙D3",     type: "吸收降低",             desc: "钙制剂可显著降低双膦酸盐的吸收", elderly: "阿仑膦酸钠（治骨质疏松的药）和钙片不能一起吃，要间隔至少2小时。阿仑膦酸钠早上空腹吃，钙片中午或晚上吃。" },
+  { id: "INT038", severity: "caution", a: "铝碳酸镁",     b: "四环素",       type: "吸收降低",             desc: "含铝镁抗酸剂可与四环素形成络合物，降低吸收", elderly: "铝碳酸镁（胃药）和四环素类抗生素不能一起吃，要间隔至少2小时。" },
+  { id: "INT039", severity: "warning", a: "银杏叶片",     b: "华法林",       type: "出血风险增加",         desc: "银杏叶抑制血小板活化因子，与抗凝药联用增加出血风险", elderly: "银杏叶片和华法林一起吃可能增加出血风险，如果在吃华法林，不要自己加银杏叶片保健品。" },
+  { id: "INT040", severity: "warning", a: "复方丹参滴丸", b: "华法林",       type: "出血风险增加",         desc: "丹参具有抗血小板和抗凝作用，与华法林联用增加出血风险", elderly: "复方丹参滴丸和华法林一起吃可能增加出血风险，要告诉医生你在吃丹参，定期验血。" }
 ];
 
 // 酒精状态独立存储（按天）
@@ -2947,7 +3044,7 @@ function showPage(pageId) {
   document.getElementById('page-' + pageId).classList.add('active');
   window.scrollTo(0, 0);
   if (pageId === 'home') renderTodayMeds();
-  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); updateAlcoholBtn(); }
+  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); renderComboAnalysis(); updateAlcoholBtn(); }
   if (pageId === 'family') { onEnterFamilyPage(); }
 }
 
@@ -3814,7 +3911,56 @@ function demoLogin() {
   showToast("正在登录演示账号...", "info");
   setTimeout(() => {
     handleAuthSubmit();
+    // 登录成功后填充演示数据（延迟3秒，等登录完成）
+    setTimeout(() => {
+      fillDemoDataIfNeeded();
+    }, 3000);
   }, 300);
+}
+
+// 填充演示账号的一周用药数据（展示联合用药分析、依从性评分等功能）
+function fillDemoDataIfNeeded() {
+  const records = loadRecords();
+  if (records.length > 5) return; // 已有数据则不覆盖
+  const today = new Date();
+  const demoDrugs = [
+    { id: 'aspirin', name: '阿司匹林肠溶片', times: ['08:00'] },
+    { id: 'amlodipine', name: '苯磺酸氨氯地平', times: ['08:00'] },
+    { id: 'atorvastatin', name: '阿托伐他汀钙', times: ['20:00'] },
+    { id: 'metformin', name: '盐酸二甲双胍', times: ['08:00', '18:00'] },
+    { id: 'donepezil', name: '盐酸多奈哌齐', times: ['21:00'] },
+    { id: 'omeprazole', name: '奥美拉唑肠溶胶囊', times: ['07:30'] }
+  ];
+  const newRecords = [];
+  // 生成过去7天的数据
+  for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - dayOffset);
+    const dateStr = d.getFullYear() + '-' + (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
+    demoDrugs.forEach(drug => {
+      drug.times.forEach(time => {
+        // 模拟漏服：第3天（dayOffset=4）漏掉二甲双胍晚上那次和多奈哌齐
+        if (dayOffset === 4 && drug.id === 'metformin' && time === '18:00') return;
+        if (dayOffset === 4 && drug.id === 'donepezil') return;
+        // 模拟偶尔延迟：第5天（dayOffset=2）阿司匹林晚吃2小时
+        let actualTime = time;
+        if (dayOffset === 2 && drug.id === 'aspirin') actualTime = '10:15';
+        newRecords.push({
+          drugId: drug.id,
+          drugName: drug.name,
+          date: dateStr,
+          time: actualTime,
+          timestamp: new Date(dateStr + 'T' + actualTime + ':00').getTime()
+        });
+      });
+    });
+  }
+  saveRecords(newRecords);
+  // 标记今天饮酒（展示酒精冲突）
+  const alcoholFlags = JSON.parse(localStorage.getItem(ALCOHOL_KEY) || '{}');
+  alcoholFlags[getTodayStr()] = true;
+  localStorage.setItem(ALCOHOL_KEY, JSON.stringify(alcoholFlags));
+  showToast('已加载演示数据（含6种药品+饮酒标记）', 'success');
 }
 
 // ===== AI 用药问答 =====
@@ -4148,6 +4294,78 @@ function renderHistoryInteractions() {
   title.className = 'interaction-section-title';
   title.textContent = '🛡️ 今天用药安全检查';
   container.insertBefore(title, container.firstChild);
+}
+
+// ============================================================
+// AI 联合用药分析：分析所有历史用药记录中的药品相互作用
+// ============================================================
+function renderComboAnalysis() {
+  const card = document.getElementById('combo-analysis-card');
+  if (!card) return;
+  const records = loadRecords();
+  if (records.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  // 收集所有用过的药品（去重）
+  const drugIds = new Set();
+  records.forEach(r => { if (r.drugId) drugIds.add(r.drugId); });
+  const names = [];
+  const seen = new Set();
+  drugIds.forEach(id => {
+    const n = getDrugNameById(id);
+    if (n && !seen.has(n)) { names.push(n); seen.add(n); }
+  });
+  if (isAlcoholToday()) names.push('酒精');
+  if (names.length < 2) {
+    card.style.display = 'none';
+    return;
+  }
+  // 检查所有药品间的相互作用
+  const rules = checkInteractions(names);
+  const dangerCount = rules.filter(r => r.severity === 'danger').length;
+  const warningCount = rules.filter(r => r.severity === 'warning').length;
+  const cautionCount = rules.filter(r => r.severity === 'caution').length;
+  // 确定整体风险等级
+  let level, levelText, levelClass;
+  if (dangerCount > 0) {
+    level = 'high'; levelText = '⚠️ 高风险'; levelClass = 'high';
+  } else if (warningCount > 0) {
+    level = 'medium'; levelText = '⚡ 中风险'; levelClass = 'medium';
+  } else if (cautionCount > 0) {
+    level = 'low'; levelText = '📋 低风险'; levelClass = 'low';
+  } else {
+    level = 'safe'; levelText = '✅ 安全'; levelClass = 'safe';
+  }
+  document.getElementById('combo-level').textContent = levelText;
+  document.getElementById('combo-level').className = 'combo-level ' + levelClass;
+  // 摘要
+  const summary = document.getElementById('combo-summary');
+  if (rules.length === 0) {
+    summary.textContent = '您当前使用的 ' + names.length + ' 种药品之间未发现明显相互作用，继续保持。';
+  } else {
+    summary.textContent = '您正在使用 ' + names.length + ' 种药品，AI 检测到 ' + rules.length + ' 组潜在相互作用（严重 ' + dangerCount + ' 组、警告 ' + warningCount + ' 组、注意 ' + cautionCount + ' 组）。';
+  }
+  // 详细列表
+  const list = document.getElementById('combo-list');
+  list.innerHTML = '';
+  rules.forEach(rule => {
+    const item = document.createElement('div');
+    item.className = 'combo-item ' + rule.severity;
+    const sevText = rule.severity === 'danger' ? '严重' : rule.severity === 'warning' ? '警告' : '注意';
+    item.innerHTML = '<div class="combo-item-title">[' + sevText + '] ' + rule.a + ' + ' + rule.b + ' — ' + rule.type + '</div><div>' + rule.elderly + '</div>';
+    list.appendChild(item);
+  });
+  // 提示
+  const tip = document.getElementById('combo-tip');
+  if (dangerCount > 0) {
+    tip.textContent = '⚠️ 存在严重相互作用，建议尽快咨询医生或药师，不要自行调整用药。';
+  } else if (warningCount > 0) {
+    tip.textContent = '💡 存在需要注意的相互作用，请仔细阅读说明，如有不适及时就医。';
+  } else {
+    tip.textContent = '💡 以上分析基于药品说明书和临床指南，仅供参考，具体请遵医嘱。';
+  }
+  card.style.display = 'block';
 }
 
 // ============================================================
