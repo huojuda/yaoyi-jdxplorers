@@ -1194,6 +1194,112 @@ body {
 .dialect-btn:active { transform: scale(0.95); }
 
 /* ===== AI 用药风险预测 ===== */
+
+.repurchase-card {
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin: 12px 0;
+  border: 1px solid #fed7aa;
+}
+.repurchase-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.repurchase-badge {
+  font-weight: 700;
+  font-size: 14px;
+  color: #c2410c;
+}
+.repurchase-close {
+  cursor: pointer;
+  color: #9ca3af;
+  font-size: 14px;
+}
+.repurchase-content {
+  font-size: 13px;
+  color: #7c2d12;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.repurchase-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.repurchase-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.repurchase-modal {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 360px;
+  padding: 20px;
+}
+.rm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.rm-close { cursor: pointer; color: #9ca3af; }
+.rm-body { margin-bottom: 16px; }
+.rm-drug-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 14px;
+}
+.rm-drug-name { font-weight: 600; }
+.rm-drug-price { color: #dc2626; font-weight: 700; }
+.rm-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.rm-delivery {
+  font-size: 12px;
+  color: #059669;
+  margin-top: 8px;
+}
+.rm-submit {
+  width: 100%;
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 12px;
+}
+.rm-note {
+  text-align: center;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 8px;
+}
 .ai-risk-card {
   background: #fff;
   border-radius: var(--radius);
@@ -2149,6 +2255,29 @@ body {
   <div class="alcohol-toggle" id="alcohol-toggle">
     <span class="at-label">🍷 今天是否饮酒？</span>
     <button class="at-btn off" id="alcohol-btn" onclick="toggleAlcohol()">未饮酒</button>
+  </div>
+
+  <!-- 京东大药房复购提醒 -->
+  <div class="repurchase-card" id="repurchase-card" style="display:none;">
+    <div class="repurchase-header">
+      <span class="repurchase-badge">🛒 京东大药房</span>
+      <span class="repurchase-close" onclick="document.getElementById('repurchase-card').style.display='none'">✕</span>
+    </div>
+    <div class="repurchase-content" id="repurchase-content"></div>
+    <button class="repurchase-btn" onclick="showRepurchaseModal()">一键复购</button>
+  </div>
+
+  <!-- 复购弹窗 -->
+  <div class="repurchase-overlay" id="repurchase-overlay" style="display:none;">
+    <div class="repurchase-modal">
+      <div class="rm-header">
+        <span>🛒 京东大药房</span>
+        <span class="rm-close" onclick="document.getElementById('repurchase-overlay').style.display='none'">✕</span>
+      </div>
+      <div class="rm-body" id="repurchase-modal-body"></div>
+      <button class="rm-submit" onclick="submitRepurchase()">提交订单（原型演示）</button>
+      <div class="rm-note">演示模式，订单不会真实提交，不产生支付</div>
+    </div>
   </div>
 
   <!-- AI 用药风险预测 -->
@@ -3127,7 +3256,7 @@ function showPage(pageId) {
   document.getElementById('page-' + pageId).classList.add('active');
   window.scrollTo(0, 0);
   if (pageId === 'home') renderTodayMeds();
-  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); renderComboAnalysis(); renderAdherenceScore(); updateAlcoholBtn(); }
+  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); renderComboAnalysis(); renderAdherenceScore(); renderRepurchaseReminder(); updateAlcoholBtn(); }
   if (pageId === 'family') { onEnterFamilyPage(); }
 }
 
@@ -4377,6 +4506,68 @@ function renderHistoryInteractions() {
   title.className = 'interaction-section-title';
   title.textContent = '🛡️ 今天用药安全检查';
   container.insertBefore(title, container.firstChild);
+}
+
+// ============================================================
+// 京东大药房复购原型
+// ============================================================
+function renderRepurchaseReminder() {
+  const card = document.getElementById('repurchase-card');
+  if (!card) return;
+  const records = loadRecords();
+  if (records.length < 10) {
+    card.style.display = 'none';
+    return;
+  }
+  // 统计各药品最近7天服用次数，估算剩余天数
+  const today = new Date();
+  const drugCounts = {};
+  records.forEach(r => {
+    const d = new Date(r.timestamp);
+    const diffDays = Math.floor((today - d) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 7) {
+      if (!drugCounts[r.drugId]) drugCounts[r.drugId] = { name: r.drugName, count: 0 };
+      drugCounts[r.drugId].count++;
+    }
+  });
+  // 找出服用最频繁的1-2种药，模拟"快吃完了"
+  const sorted = Object.entries(drugCounts).sort((a, b) => b[1].count - a[1].count);
+  if (sorted.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  const topDrug = sorted[0][1];
+  const daysLeft = Math.max(1, 10 - Math.floor(topDrug.count / 2));
+  document.getElementById('repurchase-content').innerHTML =
+    '您的 <strong>' + topDrug.name + '</strong> 预计还剩 <strong style="color:#dc2626;">' + daysLeft + ' 天</strong> 用量，建议及时补货。';
+  card.style.display = 'block';
+  // 存储当前需要复购的药品
+  window._repurchaseDrugs = sorted.slice(0, 2).map(([id, info]) => ({
+    id: id,
+    name: info.name,
+    price: (Math.random() * 50 + 15).toFixed(2)
+  }));
+}
+
+function showRepurchaseModal() {
+  const overlay = document.getElementById('repurchase-overlay');
+  const body = document.getElementById('repurchase-modal-body');
+  const drugs = window._repurchaseDrugs || [];
+  let html = '';
+  let total = 0;
+  drugs.forEach(d => {
+    html += '<div class="rm-drug-item"><span class="rm-drug-name">' + d.name + ' ×1盒</span><span class="rm-drug-price">¥' + d.price + '</span></div>';
+    total += parseFloat(d.price);
+  });
+  html += '<div class="rm-total"><span>合计</span><span style="color:#dc2626;">¥' + total.toFixed(2) + '</span></div>';
+  html += '<div class="rm-delivery">🚚 京东物流，预计明天送达</div>';
+  body.innerHTML = html;
+  overlay.style.display = 'flex';
+}
+
+function submitRepurchase() {
+  showToast('✅ 演示订单已提交（原型模式，未真实支付）', 'success');
+  document.getElementById('repurchase-overlay').style.display = 'none';
 }
 
 // ============================================================
