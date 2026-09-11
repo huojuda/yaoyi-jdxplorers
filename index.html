@@ -3523,7 +3523,7 @@ function analyzeRisk() {
 const originalShowPage = showPage;
 showPage = function(page) {
   originalShowPage(page);
-  if (page === 'history' && isLoggedIn()) {
+  if (page === 'history' && getAuthToken()) {
     setTimeout(analyzeRisk, 300);
   }
 };
@@ -3562,7 +3562,7 @@ function showAIReminder() {
 // 页面加载时显示AI提醒（延迟500ms，等首页渲染完成）
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    if (isLoggedIn()) {
+    if (getAuthToken()) {
       showAIReminder();
     }
   }, 500);
