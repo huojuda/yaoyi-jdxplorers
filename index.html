@@ -1413,6 +1413,98 @@ body {
 .combo-item.warning .combo-item-title { color: #d97706; }
 .combo-item.caution .combo-item-title { color: #4b5563; }
 
+
+.pharmacist-card {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin: 12px 0;
+  border: 1px solid #bfdbfe;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pharmacist-icon { font-size: 32px; }
+.pharmacist-info { flex: 1; }
+.pharmacist-title { font-weight: 700; font-size: 14px; color: #1e40af; margin-bottom: 2px; }
+.pharmacist-desc { font-size: 12px; color: #3b82f6; }
+.pharmacist-btn {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pharmacist-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.pharmacist-modal {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 360px;
+  padding: 20px;
+}
+.pm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.pm-close { cursor: pointer; color: #9ca3af; }
+.pm-doctor {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+}
+.pm-avatar { font-size: 36px; }
+.pm-name { font-weight: 700; font-size: 14px; color: #1e293b; }
+.pm-title { font-size: 12px; color: #64748b; margin-top: 2px; }
+.pm-question, .pm-answer { margin-bottom: 12px; }
+.pm-q-label, .pm-a-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+.pm-q-text, .pm-a-text {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.6;
+  background: #f8fafc;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.pm-a-text { background: #f0fdf4; color: #166534; }
+.pm-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.pm-note {
+  text-align: center;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 8px;
+}
 .adherence-card {
   background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
   border-radius: 16px;
@@ -2335,6 +2427,45 @@ body {
     <div class="adherence-stats" id="adherence-stats"></div>
     <div class="adherence-analysis" id="adherence-analysis"></div>
     <div class="adherence-suggestion" id="adherence-suggestion"></div>
+  </div>
+
+  <!-- 京东健康药师咨询入口 -->
+  <div class="pharmacist-card" id="pharmacist-card" style="display:none;">
+    <div class="pharmacist-icon">👨‍⚕️</div>
+    <div class="pharmacist-info">
+      <div class="pharmacist-title">京东健康药师咨询</div>
+      <div class="pharmacist-desc">AI检测到高风险用药组合，建议咨询专业药师</div>
+    </div>
+    <button class="pharmacist-btn" onclick="showPharmacistModal()">立即咨询</button>
+  </div>
+
+  <!-- 药师咨询弹窗 -->
+  <div class="pharmacist-overlay" id="pharmacist-overlay" style="display:none;">
+    <div class="pharmacist-modal">
+      <div class="pm-header">
+        <span>👨‍⚕️ 京东健康药师咨询</span>
+        <span class="pm-close" onclick="document.getElementById('pharmacist-overlay').style.display='none'">✕</span>
+      </div>
+      <div class="pm-body">
+        <div class="pm-doctor">
+          <div class="pm-avatar">👨‍⚕️</div>
+          <div>
+            <div class="pm-name">王药师 · 主任药师</div>
+            <div class="pm-title">北京协和医院 · 临床药学 15年经验</div>
+          </div>
+        </div>
+        <div class="pm-question">
+          <div class="pm-q-label">您的问题：</div>
+          <div class="pm-q-text" id="pharmacist-question"></div>
+        </div>
+        <div class="pm-answer">
+          <div class="pm-a-label">药师建议：</div>
+          <div class="pm-a-text" id="pharmacist-answer"></div>
+        </div>
+      </div>
+      <button class="pm-btn" onclick="showToast('演示模式，咨询未真实发起', 'info')">发起图文咨询（原型）</button>
+      <div class="pm-note">原型演示，不产生真实咨询和费用</div>
+    </div>
   </div>
 
   <!-- 今天用药安全检查 -->
@@ -3278,7 +3409,7 @@ function showPage(pageId) {
   document.getElementById('page-' + pageId).classList.add('active');
   window.scrollTo(0, 0);
   if (pageId === 'home') renderTodayMeds();
-  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); renderComboAnalysis(); renderAdherenceScore(); renderRepurchaseReminder(); updateAlcoholBtn(); }
+  if (pageId === 'history') { renderHistory(); renderHistoryInteractions(); renderComboAnalysis(); renderAdherenceScore(); renderRepurchaseReminder(); renderPharmacistEntry(); updateAlcoholBtn(); }
   if (pageId === 'family') { onEnterFamilyPage(); }
 }
 
@@ -4530,6 +4661,48 @@ function renderHistoryInteractions() {
   title.className = 'interaction-section-title';
   title.textContent = '🛡️ 今天用药安全检查';
   container.insertBefore(title, container.firstChild);
+}
+
+// ============================================================
+// 京东健康药师咨询入口
+// ============================================================
+function renderPharmacistEntry() {
+  const card = document.getElementById('pharmacist-card');
+  if (!card) return;
+  // 当有严重冲突时显示药师咨询入口
+  const records = loadRecords();
+  const names = [];
+  const seen = new Set();
+  records.forEach(r => {
+    const n = getDrugNameById(r.drugId);
+    if (n && !seen.has(n)) { names.push(n); seen.add(n); }
+  });
+  if (isAlcoholToday()) names.push('酒精');
+  if (names.length < 2) {
+    card.style.display = 'none';
+    return;
+  }
+  const rules = checkInteractions(names);
+  const hasDanger = rules.some(r => r.severity === 'danger');
+  if (hasDanger) {
+    card.style.display = 'flex';
+    // 存储最严重的冲突用于咨询
+    window._pharmacistIssue = rules.find(r => r.severity === 'danger');
+  } else {
+    card.style.display = 'none';
+  }
+}
+
+function showPharmacistModal() {
+  const overlay = document.getElementById('pharmacist-overlay');
+  const issue = window._pharmacistIssue;
+  if (issue) {
+    document.getElementById('pharmacist-question').textContent =
+      '我正在同时使用 ' + issue.a + ' 和 ' + issue.b + '，会有什么风险？应该怎么处理？';
+    document.getElementById('pharmacist-answer').textContent =
+      '您好，' + issue.a + ' 和 ' + issue.b + ' 同时使用确实存在' + issue.type + '的风险。' + issue.elderly + '建议您携带当前所有药品到医院或药店，由医生或药师评估后调整用药方案，不要自行停药或换药。';
+  }
+  overlay.style.display = 'flex';
 }
 
 // ============================================================
