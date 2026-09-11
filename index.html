@@ -4482,7 +4482,7 @@ function renderAdherenceScore() {
   // 估算每天应服次数
   let expectedPerDay = 0;
   commonDrugs.forEach(id => {
-    const drug = DRUG_DB.find(d => d.id === id);
+    const drug = Object.values(DRUG_DB).find(d => d.id === id);
     if (drug && drug.frequency) {
       const m = drug.frequency.match(/每天(\d)(?:-(\d))?次/);
       if (m) expectedPerDay += parseInt(m[1], 10);
