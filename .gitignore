@@ -22,6 +22,10 @@ screenshot_parts/
 ../项目交接文档.md
 ../参赛说明_药忆_JDXplorers.docx
 
+# 部署上传包（由源文件生成，可随时重建）
+dist-upload/
+dist-upload.zip
+
 # IDE
 .vscode/
 .idea/
