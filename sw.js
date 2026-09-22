@@ -1,11 +1,11 @@
 // sw.js — 药忆 Service Worker
 // 缓存策略：
-//   - 导航请求 → 缓存优先（应用外壳秒开）+ 离线降级到 index.html
-//   - 静态资源 → 缓存优先 + 网络回填
-//   - 所有 /api/* 请求 → 纯网络，永不缓存（识别/配对/事件均需实时）
+//   - 导航请求 → 网络优先（保证每次加载最新代码）+ 离线回退到缓存的 index.html
+//   - 静态资源 → 缓存优先 + 网络回填（应用外壳秒开、离线可读）
+//   - 所有 /api/* 请求 → 纯网络，永不缓存（识别/问答/账号/事件均需实时）
 // 版本更新：改 CACHE_NAME 版本号即可自动清理旧缓存
 
-const CACHE_NAME = 'yaoyi-v2.1.0';
+const CACHE_NAME = 'yaoyi-v3.0.0';
 
 // 应用外壳：单文件 SPA，CSS/JS 已内嵌进 index.html
 const APP_SHELL = [
@@ -56,16 +56,16 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   // ---- 策略 A：所有 /api/* 请求 → 纯网络，永不缓存 ----
-  // 识别/配对/事件均需实时通信，不能使用缓存
+  // 识别/问答/账号/事件均需实时通信，不能使用缓存
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(handleApiRequest(req));
     return;
   }
 
-  // 非 GET 请求直接放行
+  // 非 GET 请求直接放行（POST 账号/事件等不进入缓存）
   if (req.method !== 'GET') return;
 
-  // ---- 策略 B：导航请求 → 缓存优先 + 离线降级到 index.html ----
+  // ---- 策略 B：导航请求 → 网络优先 + 离线回退缓存（兼顾最新代码与离线可用）----
   if (req.mode === 'navigate') {
     event.respondWith(handleNavigation(req));
     return;
@@ -97,19 +97,18 @@ async function handleApiRequest(req) {
   }
 }
 
-// 导航请求：缓存优先 → 网络 → 离线降级到 index.html
+// 导航请求：网络优先（拿到最新版本并回填缓存）→ 离线时回退缓存外壳
 async function handleNavigation(req) {
   const cache = await caches.open(CACHE_NAME);
-  // 1. 命中缓存直接返回（应用外壳秒开）
-  const cached = await cache.match(req, { ignoreSearch: true });
-  if (cached) return cached;
-  // 2. 缓存未命中，走网络并回填缓存
+  // 1. 网络优先：在线时始终取最新 HTML，并回填缓存供离线使用
   try {
     const res = await fetch(req);
     if (res && res.ok) cache.put(req, res.clone());
     return res;
   } catch (err) {
-    // 3. 网络失败 → 降级到已缓存的 index.html
+    // 2. 网络失败（离线/弱网）→ 回退到已缓存页面
+    const cached = await cache.match(req, { ignoreSearch: true });
+    if (cached) return cached;
     const shell = await cache.match('./index.html') || await cache.match('./');
     if (shell) return shell;
     return new Response(

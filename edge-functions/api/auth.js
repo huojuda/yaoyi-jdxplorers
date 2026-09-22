@@ -12,6 +12,11 @@ const PBKDF2_ITERATIONS = 10000; // 边缘函数CPU限制下的安全下限，�
 const MAX_LOGIN_FAILS = 5;
 const LOCK_SECONDS = 600; // 锁定10分钟
 const VALID_ROLES = ['patient', 'caregiver'];
+// 密码重置验证码参数
+const RESET_CODE_TTL = 300;    // 验证码5分钟有效
+const RESET_CODE_CD = 60;      // 同一手机号重发冷却60秒
+const RESET_HOURLY_MAX = 5;    // 同一手机号每小时最多申请5次
+const RESET_MAX_FAILS = 5;     // 验证码连续输错5次即作废
 
 export default function onRequest(context) {
   const { request, env } = context;
@@ -55,6 +60,7 @@ export default function onRequest(context) {
 
       if (action === 'register') return await handleRegister(env, data);
       if (action === 'login') return await handleLogin(env, data);
+      if (action === 'sendcode') return await handleSendCode(env, data);
       if (action === 'resetpw') return await handleResetPw(env, data);
       if (action === 'delete') return await handleDelete(env, data);
       if (action === 'diag') return await handleDiag(env, data);
@@ -244,16 +250,86 @@ async function handleLogin(env, data) {
   });
 }
 
-// ---------- 重置密码（原型版：无短信验证，仅校验手机号已注册） ----------
+// ---------- 发送密码重置验证码 ----------
+// 原型版无短信网关：验证码在响应中以 demoCode 返回（前端明示"演示环境直接展示"）；
+// 生产环境必须改为短信/语音通道下发，且不在 HTTP 响应中返回验证码。
+async function handleSendCode(env, data) {
+  const phone = String(data.phone || '').trim();
+  if (!/^1\d{10}$/.test(phone)) {
+    return json(400, { error: '请输入11位手机号' });
+  }
+
+  const userIdRes = await redisCmd(env, 'GET', 'user:phone:' + phone);
+  if (!userIdRes.result) {
+    return json(404, { error: '该手机号尚未注册' });
+  }
+
+  // 重发冷却
+  const cd = await redisCmd(env, 'GET', 'resetcode:cd:' + phone);
+  if (cd.result) {
+    return json(429, { error: '验证码已发送，请' + cd.result + '秒后再试', retryAfter: parseInt(cd.result, 10) });
+  }
+
+  // 每小时申请次数上限
+  const n = await redisCmd(env, 'INCR', 'resetcode:n:' + phone);
+  if (parseInt(n.result || '1', 10) === 1) {
+    await redisCmd(env, 'EXPIRE', 'resetcode:n:' + phone, '3600');
+  }
+  if (parseInt(n.result || '0', 10) > RESET_HOURLY_MAX) {
+    return json(429, { error: '请求过于频繁，请1小时后再试' });
+  }
+
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  await redisCmd(env, 'SET', 'resetcode:' + phone, code, 'EX', String(RESET_CODE_TTL));
+  await redisCmd(env, 'SET', 'resetcode:cd:' + phone, String(RESET_CODE_CD), 'EX', String(RESET_CODE_CD));
+  await redisCmd(env, 'DEL', 'resetcode:fail:' + phone);
+
+  return json(200, {
+    ok: true,
+    demoCode: code, // 仅原型演示用：生产环境删除此字段，改走短信
+    expiresIn: RESET_CODE_TTL,
+    cooldown: RESET_CODE_CD,
+    note: '原型演示环境，验证码直接展示；正式版将通过短信下发',
+  });
+}
+
+// ---------- 重置密码（须校验短信验证码） ----------
 async function handleResetPw(env, data) {
   const phone = String(data.phone || '').trim();
   const password = String(data.password || '');
+  const code = String(data.code || '').trim();
 
   if (!/^1\d{10}$/.test(phone)) {
     return json(400, { error: '请输入11位手机号' });
   }
   if (password.length < 6) {
     return json(400, { error: '密码至少6位' });
+  }
+  if (!/^\d{6}$/.test(code)) {
+    return json(400, { error: '请输入6位验证码' });
+  }
+
+  const savedRes = await redisCmd(env, 'GET', 'resetcode:' + phone);
+  const savedCode = savedRes.result;
+  if (!savedCode) {
+    return json(400, { error: '验证码已过期，请重新获取' });
+  }
+
+  // 验证码错误次数限制，防止暴力枚举
+  const failKey = 'resetcode:fail:' + phone;
+  const fails = parseInt((await redisCmd(env, 'GET', failKey)).result || '0', 10);
+  if (fails >= RESET_MAX_FAILS) {
+    await redisCmd(env, 'DEL', 'resetcode:' + phone, failKey);
+    return json(429, { error: '验证码错误次数过多，请重新获取' });
+  }
+
+  if (savedCode !== code) {
+    const cnt = await redisCmd(env, 'INCR', failKey);
+    if (parseInt(cnt.result || '1', 10) === 1) {
+      await redisCmd(env, 'EXPIRE', failKey, String(RESET_CODE_TTL));
+    }
+    const remaining = RESET_MAX_FAILS - parseInt(cnt.result || '1', 10);
+    return json(400, { error: '验证码不正确' + (remaining > 0 ? '，还可尝试' + remaining + '次' : '') });
   }
 
   const userIdRes = await redisCmd(env, 'GET', 'user:phone:' + phone);
@@ -272,8 +348,8 @@ async function handleResetPw(env, data) {
     return json(500, { error: '数据写入验证失败（Redis异常），请稍后重试' });
   }
 
-  // 重置成功即解除登录失败锁定
-  await redisCmd(env, 'DEL', 'login:fail:' + phone);
+  // 验证码一次性使用，同时清理冷却/失败计数/登录锁定
+  await redisCmd(env, 'DEL', 'resetcode:' + phone, 'resetcode:cd:' + phone, failKey, 'login:fail:' + phone);
 
   return json(200, { ok: true });
 }

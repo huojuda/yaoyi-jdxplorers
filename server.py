@@ -38,6 +38,47 @@ API_ENDPOINT = CONFIG["api_endpoint"]
 MODEL_ID = CONFIG["primary_model"]["id"]
 RECOGNITION_PROMPT = CONFIG["recognition_prompt"]
 
+# AI 用药问答系统提示词（与 edge-functions/api/ask.js 保持一致）
+ASK_SYSTEM_PROMPT = '''你是一位专业、耐心的老年用药顾问，服务对象是阿尔茨海默症患者及其家属。
+
+回答规则：
+1. 用大白话回答，避免专业术语，句子简短，适合老年人理解
+2. 每次回答不超过150字
+3. 涉及剂量调整、换药、停药、联合用药等医疗决策时，必须明确建议"请咨询医生或药师"，不要给出具体剂量调整方案
+4. 如果问题与当前药品无关，可以简单回答并建议咨询医生
+5. 回答末尾固定加上："以上为AI参考，具体请遵医嘱。"
+6. 语气温暖、有同理心，像家人一样关心
+
+请根据以下药品信息和用户问题给出回答。'''
+
+# 联合用药深度分析系统提示词（结构化 JSON 输出）
+ANALYZE_SYSTEM_PROMPT = '''你是一位专业、严谨的老年用药安全顾问，服务阿尔茨海默症患者及其家属。
+任务：对患者同时使用的多种药物做联合用药安全分析。
+
+规则：
+1. 只基于公认的药品说明书、临床指南和明确的药物相互作用知识作答，不得编造药品或相互作用。
+2. 重点识别：重复用药（同类成分叠加）、严重相互作用（如出血风险、低血糖、过度中枢抑制、QT间期延长等）、药物与酒精的禁忌、对老年人风险更高的组合。
+3. 证据不足、不确定或不在你知识范围内的组合，不要硬判为危险，归入"注意"并建议咨询医生或药师。
+4. 用老人听得懂的大白话，每条建议具体、可执行，不堆砌专业术语。
+5. 只输出一个 JSON 对象，不要输出 markdown 代码块或任何多余文字，结构如下：
+{
+  "level": "safe|low|medium|high",
+  "summary": "一句话总体结论，不超过40字，老人能听懂",
+  "points": [
+    {"severity": "danger|warning|caution|safe", "title": "简短标题", "advice": "给老人的具体建议，大白话，不超过50字"}
+  ],
+  "overallAdvice": "总体叮嘱，不超过60字"
+}
+level 判定标准：存在明确同服禁忌或严重相互作用为 high；存在需要监测、间隔或调整的相互作用为 medium；仅有轻微注意事项为 low；无明显相互作用为 safe。
+points 最多 5 条，按严重程度从高到低排序；确无风险时给 1 条 severity 为 safe 的提示。overallAdvice 末尾需提醒具体用药遵医嘱。'''
+
+# 防重复服药提醒话术（短、温和、纯口语，供 TTS 播报与卡片展示）
+DUPLICATE_SYSTEM_PROMPT = '''你是一位温暖、耐心的老年照护顾问，正在提醒一位轻中度阿尔茨海默症老人不要重复服药。
+要求：
+1. 只用一到两句温和、口语化的中文，不超过60字，像家人轻声提醒，不要训斥、不要用专业术语。
+2. 明确告诉老人：这个药今天已经吃过了、现在不用再吃；并给一个简单的动作建议（例如把药盒盖上、放到一边，不确定就问家人）。
+3. 不要出现"AI""免责""遵医嘱""系统""JSON"等字样，只输出提醒话术本身。'''
+
 # Upstash Redis 配置（本地开发时从环境变量读取）
 UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "")
 UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
@@ -168,25 +209,81 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             print(f"[识别] 异常: {e}")
             self._send_json(500, {"error": str(e)})
 
-    # ---------- 配对码生成与验证 ----------
-    # ---------- AI 用药问答 ----------
+    # ---------- AI 用药问答 / 联合用药分析 ----------
+    def _read_body_data(self):
+        """读取 POST JSON/表单 或 GET query，返回 dict"""
+        if self.command == "POST":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            if body:
+                try:
+                    return json.loads(body)
+                except Exception:
+                    return {k: v[0] for k, v in parse_qs(body.decode("utf-8", errors="replace")).items()}
+            return {}
+        parsed = urlparse(self.path)
+        return {k: v[0] for k, v in parse_qs(parsed.query).items()}
+
+    def _ark_chat(self, system_prompt, user_prompt, temperature=0.3, max_tokens=300):
+        """调用火山方舟对话模型，返回文本内容；失败抛异常（统一用 urllib，无需 requests）"""
+        payload = {
+            "model": MODEL_ID,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        req = urllib.request.Request(
+            API_ENDPOINT,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + API_KEY,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        return result["choices"][0]["message"]["content"].strip()
+
+    @staticmethod
+    def _build_drug_context(drug_info):
+        if not drug_info:
+            return ""
+        if isinstance(drug_info, str):
+            try:
+                drug_info = json.loads(drug_info)
+            except Exception:
+                drug_info = {}
+        d = drug_info
+        return (
+            "\n当前药品信息：\n"
+            f"- 药品名称：{d.get('name', '未知')}\n"
+            f"- 商品名：{'、'.join(d.get('brand_names', []) or []) or '未知'}\n"
+            f"- 类别：{d.get('plain_class') or d.get('drug_class') or '未知'}\n"
+            f"- 用法：{d.get('frequency', '')}，{d.get('timing', '')}，{d.get('meal_relation', '')}\n"
+            f"- 剂量：{d.get('dosage', '未知')}\n"
+            f"- 禁忌：{d.get('contraindication', '')}\n"
+            f"- 详细禁忌：{d.get('contraindication_detail', '')}\n"
+            f"- 副作用：{d.get('side_effects', '')}\n"
+            f"- 老人说明：{d.get('elderly_explanation', '')}\n"
+        )
+
     def _handle_ask(self):
         try:
-            # 读取请求体（POST）或 query 参数（GET）
-            data = {}
-            if self.command == "POST":
-                content_length = int(self.headers.get("Content-Length", 0))
-                body = self.rfile.read(content_length)
-                if body:
-                    try:
-                        data = json.loads(body)
-                    except:
-                        from urllib.parse import parse_qs
-                        data = {k: v[0] for k, v in parse_qs(body.decode()).items()}
-            else:
-                from urllib.parse import urlparse, parse_qs
-                parsed = urlparse(self.path)
-                data = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+            data = self._read_body_data()
+
+            # 联合用药深度分析模式
+            if data.get("mode") == "analyze":
+                self._ask_analyze(data)
+                return
+
+            # 防重复服药 AI 话术模式
+            if data.get("mode") == "duplicate":
+                self._ask_duplicate(data)
+                return
 
             question = (data.get("question", "") or "").strip()
             drug_info = data.get("drugInfo", None)
@@ -201,68 +298,19 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
 
             print(f"[AI问答] 问题: {question}")
 
-            # 构建药品信息上下文
-            drug_context = ""
-            if drug_info:
-                if isinstance(drug_info, str):
-                    try:
-                        drug_info = json.loads(drug_info)
-                    except:
-                        drug_info = {}
-                d = drug_info
-                drug_context = f"""
-当前药品信息：
-- 药品名称：{d.get("name", "未知")}
-- 商品名：{"、".join(d.get("brand_names", [])) or "未知"}
-- 类别：{d.get("plain_class", d.get("drug_class", "未知"))}
-- 用法：{d.get("frequency", "")}，{d.get("timing", "")}，{d.get("meal_relation", "")}
-- 剂量：{d.get("dosage", "未知")}
-- 禁忌：{d.get("contraindication", "")}
-- 详细禁忌：{d.get("contraindication_detail", "")}
-- 副作用：{d.get("side_effects", "")}
-- 老人说明：{d.get("elderly_explanation", "")}
-"""
-
-            system_prompt = """你是一位专业、耐心的老年用药顾问，服务对象是阿尔茨海默症患者及其家属。
-
-回答规则：
-1. 用大白话回答，避免专业术语，句子简短，适合老年人理解
-2. 每次回答不超过150字
-3. 涉及剂量调整、换药、停药、联合用药等医疗决策时，必须明确建议"请咨询医生或药师"，不要给出具体剂量调整方案
-4. 如果问题与当前药品无关，可以简单回答并建议咨询医生
-5. 回答末尾固定加上："以上为AI参考，具体请遵医嘱。"
-6. 语气温暖、有同理心，像家人一样关心
-
-请根据以下药品信息和用户问题给出回答。"""
-
+            drug_context = self._build_drug_context(drug_info)
             user_prompt = f"{drug_context}\n用户问题：{question}" if drug_context else f"用户问题：{question}"
 
-            payload = {
-                "model": MODEL_ID,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.3,
-                "max_tokens": 300,
-            }
-
-            resp = requests.post(
-                API_ENDPOINT,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {API_KEY}",
-                },
-                json=payload,
-                timeout=30,
-            )
-
-            if resp.status_code != 200:
-                self._send_json(502, {"error": f"AI服务返回错误 {resp.status_code}", "detail": resp.text[:500]})
+            try:
+                answer = self._ark_chat(ASK_SYSTEM_PROMPT, user_prompt, 0.3, 300)
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", errors="replace")
+                self._send_json(502, {"error": f"AI服务返回错误 {e.code}", "detail": detail[:500]})
                 return
-
-            result = resp.json()
-            answer = result["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                print(f"[AI问答] 调用失败: {e}")
+                self._send_json(502, {"error": f"AI服务调用失败: {e}"})
+                return
 
             if "AI参考" not in answer and "遵医嘱" not in answer:
                 answer += "\n\n以上为AI参考，具体请遵医嘱。"
@@ -274,6 +322,112 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             import traceback
             traceback.print_exc()
             self._send_json(500, {"error": str(e)})
+
+    def _ask_analyze(self, data):
+        drugs = data.get("drugs", [])
+        if isinstance(drugs, str):
+            try:
+                drugs = json.loads(drugs)
+            except Exception:
+                drugs = drugs.split(",")
+        if not isinstance(drugs, list):
+            drugs = []
+        drugs = [str(d).strip() for d in drugs if str(d).strip()][:12]
+        if len(drugs) < 2:
+            self._send_json(400, {"error": "至少需要两种药品才能分析"})
+            return
+
+        rule_hits = data.get("ruleHits")
+        if isinstance(rule_hits, str):
+            try:
+                rule_hits = json.loads(rule_hits)
+            except Exception:
+                rule_hits = None
+
+        rule_section = ""
+        if isinstance(rule_hits, list) and rule_hits:
+            lines = []
+            for r in rule_hits[:8]:
+                if not isinstance(r, dict):
+                    continue
+                sev = "严重" if r.get("severity") == "danger" else ("警告" if r.get("severity") == "warning" else "注意")
+                pair = r.get("pair")
+                if isinstance(pair, list):
+                    pair_s = " + ".join(str(x) for x in pair)
+                else:
+                    pair_s = f"{r.get('a', '')} + {r.get('b', '')}"
+                lines.append(f"- [{sev}] {pair_s}：{r.get('desc') or r.get('elderly') or ''}")
+            if lines:
+                rule_section = "\n前端内置规则引擎已命中以下相互作用（供你参考，需结合专业知识独立判断，不要照抄）：\n" + "\n".join(lines) + "\n"
+
+        user_prompt = f"患者正在同时使用以下 {len(drugs)} 种药品/物质：{'、'.join(drugs)}。{rule_section}\n请按要求只输出 JSON。"
+        print(f"[AI联合用药分析] {len(drugs)} 种: {'、'.join(drugs)}")
+
+        try:
+            content = self._ark_chat(ANALYZE_SYSTEM_PROMPT, user_prompt, 0.2, 700)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:300]
+            # 分析失败不阻断页面，前端静默降级为仅展示规则结果
+            self._send_json(200, {"analysis": None, "error": f"AI服务返回错误 {e.code}", "detail": detail})
+            return
+        except Exception as e:
+            print(f"[AI联合用药分析] 调用失败: {e}")
+            self._send_json(200, {"analysis": None, "error": "AI服务网络异常"})
+            return
+
+        analysis = self._extract_json(content)
+        if (not analysis or analysis.get("level") not in ("safe", "low", "medium", "high")
+                or not isinstance(analysis.get("points"), list)):
+            self._send_json(200, {"analysis": None, "error": "AI返回格式解析失败"})
+            return
+
+        valid_sev = {"danger", "warning", "caution", "safe"}
+        points = []
+        for p in analysis["points"]:
+            if not isinstance(p, dict) or p.get("severity") not in valid_sev:
+                continue
+            points.append({
+                "severity": p["severity"],
+                "title": str(p.get("title", ""))[:30],
+                "advice": str(p.get("advice", ""))[:120],
+            })
+        points = points[:5]
+        if not points:
+            self._send_json(200, {"analysis": None, "error": "AI返回内容为空"})
+            return
+
+        analysis = {
+            "level": analysis["level"],
+            "summary": str(analysis.get("summary", ""))[:80],
+            "points": points,
+            "overallAdvice": str(analysis.get("overallAdvice", ""))[:120],
+        }
+        self._send_json(200, {"analysis": analysis, "drugs": drugs})
+
+    def _ask_duplicate(self, data):
+        drug_name = str(data.get("drugName", "这个药") or "这个药").strip()[:30]
+        drug_class = str(data.get("drugClass", "") or "").strip()[:20]
+        took_time = str(data.get("time", "") or "").strip()[:10]
+
+        class_part = f"（{drug_class}）" if drug_class else ""
+        time_part = f"，今天最近一次服药时间是 {took_time}" if took_time else ""
+        user_prompt = f"药品：{drug_name}{class_part}{time_part}。老人现在又拿起这个药准备吃，请生成一句提醒话术。"
+        print(f"[AI重复提醒] {drug_name} 最近服药 {took_time}")
+
+        try:
+            text = self._ark_chat(DUPLICATE_SYSTEM_PROMPT, user_prompt, 0.6, 120)
+        except Exception as e:
+            print(f"[AI重复提醒] 调用失败: {e}")
+            # 失败不阻断，前端静默降级为固定警告
+            self._send_json(200, {"text": None, "error": "AI服务异常"})
+            return
+
+        # 去掉残留引号、markdown
+        text = text.strip().strip('"').strip("“").strip("”").replace("```", "").strip()
+        if not text:
+            self._send_json(200, {"text": None, "error": "AI返回为空"})
+            return
+        self._send_json(200, {"text": text[:120]})
 
     def _handle_pair(self):
         try:
@@ -469,6 +623,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
                 self._auth_register(data)
             elif action == "login":
                 self._auth_login(data)
+            elif action == "sendcode":
+                self._auth_sendcode(data)
             elif action == "resetpw":
                 self._auth_resetpw(data)
             elif action == "delete":
@@ -482,7 +638,7 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
                     redis_cmd("DEL", "session:" + token)
                 self._send_json(200, {"ok": True})
             else:
-                self._send_json(400, {"error": "未知操作，应为 register/login/me/logout"})
+                self._send_json(400, {"error": "未知操作，应为 register/login/sendcode/resetpw/delete/diag/me/logout"})
 
         except Exception as e:
             print(f"[账号] 异常: {e}")
@@ -644,16 +800,80 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         print(f"[账号] 登录成功: {phone}")
         self._send_json(200, {"token": token, "user": {"userId": user_id, "phone": user.get("phone"), "role": user.get("role"), "displayName": user.get("displayName")}})
 
+    def _auth_sendcode(self, data):
+        """发送密码重置验证码（原型版无短信网关，验证码在响应 demoCode 中直接返回）"""
+        phone = str(data.get("phone", "")).strip()
+        if not (phone.startswith("1") and len(phone) == 11 and phone.isdigit()):
+            self._send_json(400, {"error": "请输入11位手机号"})
+            return
+
+        user_id = redis_cmd("GET", "user:phone:" + phone).get("result")
+        if not user_id:
+            self._send_json(404, {"error": "该手机号尚未注册"})
+            return
+
+        # 重发冷却
+        cd = redis_cmd("GET", "resetcode:cd:" + phone).get("result")
+        if cd:
+            self._send_json(429, {"error": f"验证码已发送，请{cd}秒后再试", "retryAfter": int(cd)})
+            return
+
+        # 每小时申请次数上限
+        n = int(redis_cmd("INCR", "resetcode:n:" + phone).get("result", "1"))
+        if n == 1:
+            redis_cmd("EXPIRE", "resetcode:n:" + phone, "3600")
+        if n > 5:
+            self._send_json(429, {"error": "请求过于频繁，请1小时后再试"})
+            return
+
+        code = f"{random.randint(0, 999999):06d}"
+        redis_cmd("SET", "resetcode:" + phone, code, "EX", "300")
+        redis_cmd("SET", "resetcode:cd:" + phone, "60", "EX", "60")
+        redis_cmd("DEL", "resetcode:fail:" + phone)
+        print(f"[账号] 重置验证码已发送: {phone} → {code}（演示环境）")
+        self._send_json(200, {
+            "ok": True,
+            "demoCode": code,  # 仅原型演示：生产环境删除，改走短信
+            "expiresIn": 300,
+            "cooldown": 60,
+            "note": "原型演示环境，验证码直接展示；正式版将通过短信下发",
+        })
+
     def _auth_resetpw(self, data):
-        """重置密码（原型版：无短信验证，仅校验手机号已注册）"""
+        """重置密码（须校验6位验证码）"""
         phone = str(data.get("phone", "")).strip()
         password = str(data.get("password", ""))
+        code = str(data.get("code", "")).strip()
 
         if not (phone.startswith("1") and len(phone) == 11 and phone.isdigit()):
             self._send_json(400, {"error": "请输入11位手机号"})
             return
         if len(password) < 6:
             self._send_json(400, {"error": "密码至少6位"})
+            return
+        if not re.match(r"^\d{6}$", code):
+            self._send_json(400, {"error": "请输入6位验证码"})
+            return
+
+        saved_code = redis_cmd("GET", "resetcode:" + phone).get("result")
+        if not saved_code:
+            self._send_json(400, {"error": "验证码已过期，请重新获取"})
+            return
+
+        fail_key = "resetcode:fail:" + phone
+        fails = int(redis_cmd("GET", fail_key).get("result") or "0")
+        if fails >= 5:
+            redis_cmd("DEL", "resetcode:" + phone, fail_key)
+            self._send_json(429, {"error": "验证码错误次数过多，请重新获取"})
+            return
+
+        if saved_code != code:
+            cnt = int(redis_cmd("INCR", fail_key).get("result", "1"))
+            if cnt == 1:
+                redis_cmd("EXPIRE", fail_key, "300")
+            remaining = 5 - cnt
+            hint = f"，还可尝试{remaining}次" if remaining > 0 else ""
+            self._send_json(400, {"error": "验证码不正确" + hint})
             return
 
         user_id = redis_cmd("GET", "user:phone:" + phone).get("result")
@@ -673,7 +893,8 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
             self._send_json(500, {"error": "数据写入验证失败（Redis异常），请稍后重试"})
             return
 
-        redis_cmd("DEL", "login:fail:" + phone)  # 重置成功即解除锁定
+        # 验证码一次性使用，清理冷却/失败计数/登录锁定
+        redis_cmd("DEL", "resetcode:" + phone, "resetcode:cd:" + phone, fail_key, "login:fail:" + phone)
 
         print(f"[账号] 密码重置: {phone}")
         self._send_json(200, {"ok": True})
@@ -841,7 +1062,7 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
                 return
 
             if action == "gen":
-                code = str(random.randint(100000, 999999))
+                code = str(random.randint(10000000, 99999999))
                 user = redis_cmd("HGETALL", f"user:{user_id}").get("result") or {}
                 redis_cmd("SET", f"bindCode:{code}", json.dumps({
                     "userId": user_id, "role": user.get("role"), "createdAt": int(time.time() * 1000)
@@ -850,12 +1071,23 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
 
             elif action == "bind":
                 code = str(data.get("code", "")).strip()
-                if not re.match(r"^\d{6}$", code):
-                    self._send_json(400, {"error": "请输入6位绑定码"})
+                if not re.match(r"^\d{8}$", code):
+                    self._send_json(400, {"error": "请输入8位绑定码"})
+                    return
+                # 防爆破：按发起绑定的账号计数，连续失败5次锁定5分钟
+                fail_key = f"bindFail:{user_id}"
+                fail_count = int(redis_cmd("GET", fail_key).get("result") or "0")
+                if fail_count >= 5:
+                    self._send_json(429, {"error": "绑定失败次数过多，请5分钟后再试"})
                     return
                 raw = redis_cmd("GET", f"bindCode:{code}").get("result")
                 if not raw:
-                    self._send_json(404, {"error": "绑定码无效或已过期"})
+                    cnt = int(redis_cmd("INCR", fail_key).get("result", "1"))
+                    if cnt == 1:
+                        redis_cmd("EXPIRE", fail_key, "300")
+                    remaining = 5 - cnt
+                    hint = f"（还可尝试{remaining}次）" if remaining > 0 else ""
+                    self._send_json(404, {"error": "绑定码无效或已过期" + hint})
                     return
                 info = json.loads(raw)
                 patient_id = info["userId"]
@@ -872,12 +1104,12 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
                     return
                 already = redis_cmd("SISMEMBER", f"relation:{user_id}", patient_id).get("result")
                 if already:
-                    redis_cmd("DEL", f"bindCode:{code}")
+                    redis_cmd("DEL", f"bindCode:{code}", fail_key)
                     self._send_json(200, {"ok": True, "already": True})
                     return
                 redis_cmd("SADD", f"relation:{user_id}", patient_id)
                 redis_cmd("SADD", f"relation:{patient_id}", user_id)
-                redis_cmd("DEL", f"bindCode:{code}")
+                redis_cmd("DEL", f"bindCode:{code}", fail_key)
                 self._send_json(200, {"ok": True, "patient": {
                     "userId": patient_id, "displayName": patient.get("displayName"),
                     "phone": patient.get("phone"), "role": patient.get("role"),

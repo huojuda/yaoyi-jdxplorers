@@ -2102,8 +2102,18 @@ body {
     <div class="auth-label">手机号</div>
     <input type="tel" class="auth-input" id="auth-phone" placeholder="11位手机号" maxlength="11" inputmode="numeric">
 
-    <div class="auth-label">密码</div>
+    <div class="auth-label" id="auth-password-label">密码</div>
     <input type="password" class="auth-input" id="auth-password" placeholder="至少6位" maxlength="20">
+
+    <!-- 短信验证码（仅重置密码时显示） -->
+    <div id="auth-code-group" style="display:none;">
+      <div class="auth-label">短信验证码</div>
+      <div style="display:flex;gap:8px;">
+        <input type="tel" class="auth-input" id="auth-code" placeholder="6位验证码" maxlength="6" inputmode="numeric" style="flex:1;">
+        <button type="button" class="btn btn-ghost" id="send-code-btn" onclick="sendResetCode()" style="width:auto;white-space:nowrap;padding:0 14px;font-size:14px;margin:0;">获取验证码</button>
+      </div>
+      <div id="auth-code-hint" style="font-size:12px;color:var(--warning);margin-top:4px;line-height:1.5;display:none;"></div>
+    </div>
 
     <div id="forgot-row" style="text-align:right;margin-top:6px;">
       <a href="javascript:void(0)" onclick="switchAuthMode('reset')" style="font-size:13px;color:var(--primary);text-decoration:none;">忘记密码？</a>
@@ -2205,6 +2215,10 @@ body {
     <div class="alert-text">
       <div class="alert-title">重复服药提醒</div>
       <div class="alert-desc" id="duplicate-desc">您今天已经吃过这个药了，请不要重复服用！</div>
+      <div id="duplicate-ai" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #fca5a5;">
+        <div id="duplicate-ai-text" style="font-size:15px;color:#b91c1c;line-height:1.7;background:#fff7f7;border-radius:10px;padding:8px 10px;"></div>
+        <button type="button" onclick="speakDuplicateAi()" style="margin-top:8px;width:auto;padding:8px 16px;font-size:14px;border:1px solid #dc2626;background:#fff;color:#dc2626;border-radius:999px;">🔊 再听一遍提醒</button>
+      </div>
     </div>
   </div>
 
@@ -2411,8 +2425,13 @@ body {
       <span class="combo-level" id="combo-level"></span>
     </div>
     <div class="combo-summary" id="combo-summary"></div>
+    <div class="combo-rule-title" id="combo-rule-title" style="font-size:13px;font-weight:700;color:#374151;margin:8px 0 4px;">📋 内置规则速查</div>
     <div class="combo-list" id="combo-list"></div>
     <div class="combo-tip" id="combo-tip"></div>
+    <div id="combo-ai-block" style="display:none;margin-top:12px;border-top:1px dashed #c4b5fd;padding-top:12px;">
+      <div style="font-size:14px;font-weight:700;color:#6d28d9;margin-bottom:8px;">🤖 大模型深度分析（AI 生成，仅供参考）</div>
+      <div id="combo-ai-content"></div>
+    </div>
   </div>
 
   <!-- AI 用药依从性评分 -->
@@ -3697,6 +3716,8 @@ async function finishRecognition() {
       document.getElementById('result-contraindication').textContent = '请遵医嘱';
       document.getElementById('result-contraindication-detail').textContent = '';
       document.getElementById('duplicate-alert').style.display = 'none';
+      var daiBox = document.getElementById('duplicate-ai');
+      if (daiBox) daiBox.style.display = 'none';
       document.getElementById('confirm-btn').style.display = 'none';
       showToast('识别成功，但数据库暂未收录该药品', 'warning');
     }
@@ -3816,13 +3837,17 @@ function renderResult(drug) {
   const duplicate = checkDuplicate(drug.id);
   const alertEl = document.getElementById('duplicate-alert');
   const confirmBtn = document.getElementById('confirm-btn');
+  const duplicateAiBox = document.getElementById('duplicate-ai');
   if (duplicate) {
     alertEl.style.display = 'flex';
     document.getElementById('duplicate-desc').textContent =
       '您今天 ' + duplicate.time + ' 已经吃过「' + drug.name + '」了，请不要重复服用！如不确定请咨询医生或家属。';
     confirmBtn.style.display = 'none';
+    // 规则红色警告即时显示后，异步请求 AI 个性化温和话术（失败静默降级）
+    fetchDuplicateAi(drug, duplicate);
   } else {
     alertEl.style.display = 'none';
+    if (duplicateAiBox) duplicateAiBox.style.display = 'none';
     confirmBtn.style.display = 'flex';
   }
 
@@ -4259,6 +4284,8 @@ function quickExperience(drugId) {
 
   // 隐藏重复服药警告和冲突警告（演示模式）
   document.getElementById("duplicate-alert").style.display = "none";
+  var daiBox2 = document.getElementById("duplicate-ai");
+  if (daiBox2) daiBox2.style.display = "none";
   document.getElementById("result-interaction-section").style.display = "none";
 
   // 重置AI面板
@@ -4506,6 +4533,41 @@ function checkDuplicate(drugId) {
   if (todayRecords.length === 0) return null;
   // 返回最近一次记录
   return todayRecords[todayRecords.length - 1];
+}
+
+// ---------- 防重复服药 AI 个性化话术（/api/ask mode=duplicate）----------
+let duplicateAiText = '';
+async function fetchDuplicateAi(drug, duplicate) {
+  const box = document.getElementById('duplicate-ai');
+  const txt = document.getElementById('duplicate-ai-text');
+  if (!box || !txt) return;
+  duplicateAiText = '';
+  box.style.display = 'block';
+  txt.textContent = '🤖 正在为您生成贴心提醒…';
+  let r;
+  try {
+    const resp = await fetch(apiUrl('/api/ask'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'duplicate',
+        drugName: drug.name,
+        drugClass: drug.plain_class || '',
+        time: duplicate.time || ''
+      }),
+    });
+    r = await resp.json();
+  } catch (e) {
+    box.style.display = 'none'; // 网络失败静默降级，固定红色警告与语音仍在
+    return;
+  }
+  if (!r || r.error || !r.text) { box.style.display = 'none'; return; }
+  duplicateAiText = r.text;
+  txt.textContent = '🤖 ' + r.text;
+}
+
+function speakDuplicateAi() {
+  if (duplicateAiText) speak(duplicateAiText);
 }
 
 // ============================================================
@@ -4818,6 +4880,8 @@ function renderComboAnalysis() {
     summary.textContent = '您正在使用 ' + names.length + ' 种药品，AI 检测到 ' + rules.length + ' 组潜在相互作用（严重 ' + dangerCount + ' 组、警告 ' + warningCount + ' 组、注意 ' + cautionCount + ' 组）。';
   }
   // 详细列表
+  const ruleTitle = document.getElementById('combo-rule-title');
+  if (ruleTitle) ruleTitle.style.display = rules.length === 0 ? 'none' : 'block';
   const list = document.getElementById('combo-list');
   list.innerHTML = '';
   rules.forEach(rule => {
@@ -4837,6 +4901,98 @@ function renderComboAnalysis() {
     tip.textContent = '💡 以上分析基于药品说明书和临床指南，仅供参考，具体请遵医嘱。';
   }
   card.style.display = 'block';
+
+  // 规则结果即时展示后，异步请求大模型深度分析（失败静默降级，仅保留规则结果）
+  fetchComboAiAnalysis(names, rules);
+}
+
+// ---------- AI 联合用药深度分析（/api/ask mode=analyze，按药品组合缓存，7天有效）----------
+const comboAiCache = new Map();
+function aiEscapeText(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function fetchComboAiAnalysis(names, rules) {
+  const block = document.getElementById('combo-ai-block');
+  const content = document.getElementById('combo-ai-content');
+  if (!block || !content) return;
+  const cacheKey = 'comboAi:' + names.slice().sort().join('|');
+  const CACHE_TTL = 7 * 24 * 3600 * 1000;
+
+  // 1. 内存缓存
+  if (comboAiCache.has(cacheKey)) { renderComboAi(comboAiCache.get(cacheKey)); return; }
+  // 2. localStorage 缓存
+  try {
+    const saved = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+    if (saved && Date.now() - saved.ts < CACHE_TTL) {
+      comboAiCache.set(cacheKey, saved.data);
+      renderComboAi(saved.data);
+      return;
+    }
+  } catch (e) {}
+
+  block.style.display = 'block';
+  content.innerHTML = '<div style="display:flex;align-items:center;gap:8px;color:#6d28d9;font-size:14px;padding:6px 0;"><span class="ai-spinner" style="flex-shrink:0;"></span>AI 正在深度分析这些药物的组合…</div>';
+
+  const ruleHits = rules.slice(0, 8).map(function (r) {
+    return { severity: r.severity, pair: r.pair || [r.a, r.b], desc: r.elderly || r.type || '' };
+  });
+
+  let result;
+  try {
+    const resp = await fetch(apiUrl('/api/ask'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'analyze', drugs: names, ruleHits: ruleHits }),
+    });
+    result = await resp.json();
+  } catch (e) {
+    block.style.display = 'none'; // 网络失败静默降级，规则结果仍在
+    return;
+  }
+
+  if (!result || result.error || !result.analysis) {
+    block.style.display = 'none';
+    return;
+  }
+
+  const a = result.analysis;
+  comboAiCache.set(cacheKey, a);
+  try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: a })); } catch (e) {}
+  renderComboAi(a);
+}
+
+function renderComboAi(a) {
+  const block = document.getElementById('combo-ai-block');
+  const content = document.getElementById('combo-ai-content');
+  if (!block || !content || !a) return;
+  const lvlMap = {
+    high:   { t: '⚠️ AI 判定：高风险', bg: '#fee2e2', c: '#dc2626' },
+    medium: { t: '⚡ AI 判定：中风险', bg: '#fef3c7', c: '#d97706' },
+    low:    { t: '📋 AI 判定：低风险', bg: '#d1fae5', c: '#059669' },
+    safe:   { t: '✅ AI 判定：基本安全', bg: '#e0e7ff', c: '#4f46e5' }
+  };
+  const sevMap = {
+    danger:  { icon: '🚫', c: '#dc2626', bg: '#fef2f2' },
+    warning: { icon: '⚠️', c: '#d97706', bg: '#fffbeb' },
+    caution: { icon: '💡', c: '#059669', bg: '#ecfdf5' },
+    safe:    { icon: '✅', c: '#4f46e5', bg: '#eef2ff' }
+  };
+  const lvl = lvlMap[a.level] || lvlMap.low;
+  let html = '<div style="display:inline-block;font-size:13px;font-weight:700;padding:4px 12px;border-radius:999px;background:' + lvl.bg + ';color:' + lvl.c + ';margin-bottom:8px;">' + lvl.t + '</div>';
+  if (a.summary) html += '<div style="font-size:15px;font-weight:700;color:#1f2937;margin-bottom:8px;line-height:1.6;">' + aiEscapeText(a.summary) + '</div>';
+  (a.points || []).forEach(function (p) {
+    const s = sevMap[p.severity] || sevMap.caution;
+    html += '<div style="background:' + s.bg + ';border-radius:10px;padding:8px 10px;margin-bottom:6px;">'
+      + '<div style="font-size:13px;font-weight:700;color:' + s.c + ';margin-bottom:2px;">' + s.icon + ' ' + aiEscapeText(p.title || '') + '</div>'
+      + '<div style="font-size:13px;color:#374151;line-height:1.6;">' + aiEscapeText(p.advice || '') + '</div>'
+      + '</div>';
+  });
+  if (a.overallAdvice) html += '<div style="font-size:12px;color:#6b7280;margin-top:6px;line-height:1.6;">🤖 ' + aiEscapeText(a.overallAdvice) + '<br>以上为 AI 参考，具体请遵医嘱。</div>';
+  content.innerHTML = html;
+  block.style.display = 'block';
 }
 
 // ============================================================
@@ -5337,6 +5493,14 @@ function switchAuthMode(mode) {
   document.getElementById('tab-register').classList.toggle('active', isRegister);
   document.getElementById('auth-role-group').style.display = isRegister ? 'block' : 'none';
   document.getElementById('forgot-row').style.display = isLogin ? 'block' : 'none';
+  document.getElementById('auth-code-group').style.display = isReset ? 'block' : 'none';
+  document.getElementById('auth-password-label').textContent = isReset ? '新密码' : '密码';
+  if (!isReset) {
+    document.getElementById('auth-code').value = '';
+    const codeHint = document.getElementById('auth-code-hint');
+    codeHint.style.display = 'none';
+    codeHint.textContent = '';
+  }
   document.getElementById('delete-row').style.display = (isLogin || isReset) ? 'block' : 'none';
   document.getElementById('auth-title').textContent = isDelete ? '注销账号' : (isReset ? '重置密码' : (isLogin ? '登录' : '注册'));
   document.getElementById('auth-submit').textContent = isDelete ? '确认注销' : (isReset ? '重置密码' : (isLogin ? '登 录' : '注 册'));
@@ -5355,13 +5519,52 @@ function pickRole(role) {
   document.getElementById('role-caregiver').classList.toggle('active', role === 'caregiver');
 }
 
+// 发送密码重置验证码（原型演示环境验证码直接展示，正式版走短信）
+async function sendResetCode() {
+  const phone = document.getElementById('auth-phone').value.trim();
+  if (!/^1\d{10}$/.test(phone)) { showToast('请先输入11位手机号', 'warning'); return; }
+  const btn = document.getElementById('send-code-btn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '发送中…';
+
+  const r = await apiPost('/api/auth', { action: 'sendcode', phone });
+  if (r.error) {
+    btn.disabled = false;
+    btn.textContent = '获取验证码';
+    showToast(r.error, 'danger');
+    return;
+  }
+
+  const hint = document.getElementById('auth-code-hint');
+  if (r.demoCode) {
+    hint.style.display = 'block';
+    hint.textContent = '演示环境验证码：' + r.demoCode + '（正式版将短信发送，' + (r.expiresIn || 300) + '秒内有效）';
+  }
+  let cd = r.cooldown || 60;
+  btn.textContent = cd + '秒后重发';
+  const timer = setInterval(() => {
+    cd--;
+    if (cd <= 0) {
+      clearInterval(timer);
+      btn.disabled = false;
+      btn.textContent = '获取验证码';
+    } else {
+      btn.textContent = cd + '秒后重发';
+    }
+  }, 1000);
+  showToast('验证码已发送', 'success');
+}
+
 async function handleAuthSubmit() {
   const phone = document.getElementById('auth-phone').value.trim();
   const password = document.getElementById('auth-password').value;
   const displayName = document.getElementById('auth-name').value.trim();
+  const code = document.getElementById('auth-code').value.trim();
 
   if (!/^1\d{10}$/.test(phone)) { showToast('请输入11位手机号', 'warning'); return; }
   if (password.length < 6) { showToast('密码至少6位', 'warning'); return; }
+  if (authMode === 'reset' && !/^\d{6}$/.test(code)) { showToast('请输入6位短信验证码', 'warning'); return; }
 
   // 注销前二次确认
   if (authMode === 'delete' && !confirm('确定要永久注销账号吗？\n注销后账号数据将被删除且无法恢复！')) return;
@@ -5373,7 +5576,7 @@ async function handleAuthSubmit() {
   const body = authMode === 'register'
     ? { action: 'register', phone, password, role: pickedRole, displayName }
     : authMode === 'reset'
-      ? { action: 'resetpw', phone, password }
+      ? { action: 'resetpw', phone, password, code }
       : authMode === 'delete'
         ? { action: 'delete', phone, password }
         : { action: 'login', phone, password };
@@ -5393,6 +5596,7 @@ async function handleAuthSubmit() {
   }
 
   if (authMode === 'reset') {
+    document.getElementById('auth-code').value = '';
     showToast('密码已重置，请用新密码登录', 'success');
     switchAuthMode('login');
     return;
@@ -5432,8 +5636,10 @@ function apiUrl(path, extraQS = '') {
 // 只有 recognize（带 image 大字段）才用 POST
 async function apiPost(path, body, extraQS = '') {
   try {
-    // 判断是否需要用 POST（图片识药）
-    const needsPost = body && body.image && body.image.length > 1000;
+    // 图片识药、账号敏感操作（密码/验证码不得拼进 URL）必须用 POST
+    const SENSITIVE_AUTH_ACTIONS = ['register', 'login', 'resetpw', 'delete', 'sendcode'];
+    const needsPost = (body && body.image && body.image.length > 1000)
+      || (path === '/api/auth' && body && SENSITIVE_AUTH_ACTIONS.indexOf(body.action) >= 0);
     if (!needsPost) {
       // 普通请求：所有参数拼到 URL 上用 GET
       const qsParts = [];
@@ -5517,7 +5723,7 @@ async function openPairModal() {
 
   let seconds = r.expiresIn || 120;
   document.getElementById('pair-modal-desc').innerHTML =
-    `<div style="font-size:48px;font-weight:700;letter-spacing:12px;color:var(--primary);margin:12px 0;">${r.code}</div>
+    `<div style="font-size:40px;font-weight:700;letter-spacing:6px;color:var(--primary);margin:12px 0;">${r.code}</div>
      <div style="color:var(--text-secondary);">发给家人，${seconds}秒内有效</div>
      <div style="margin-top:12px;font-size:13px;color:var(--text-secondary);">家人在"家属查看 → 输入绑定码"完成关联</div>`;
   const timer = setInterval(() => {
@@ -5661,7 +5867,7 @@ function renderRelationSection() {
     document.getElementById('pair-section').innerHTML = `
       <div class="pair-card" style="text-align:center;">
         <div class="pc-title">👨‍👩‍👧 家人绑定</div>
-        <div class="pc-desc">登录后即可用6位绑定码关联家人：<br>长辈（患者账号）生成绑定码 → 家人（家人账号）输入绑定码</div>
+        <div class="pc-desc">登录后即可用8位绑定码关联家人：<br>长辈（患者账号）生成绑定码 → 家人（家人账号）输入绑定码</div>
         <button class="btn btn-primary" onclick="showPage('auth')" style="margin-top:14px;">登录 / 注册</button>
         <div class="pc-hint" style="margin-top:12px;">关联后可远程查看用药日报、接收服药通知和紧急求助</div>
       </div>`;
@@ -5680,7 +5886,7 @@ function renderRelationSection() {
       html += `<div class="pair-card" style="text-align:center;">
         <div class="pc-desc" style="color:var(--text-secondary);">还没有关联长辈</div>
         <button class="btn btn-primary" onclick="showBindCodeInput()" style="margin-top:12px;">输入长辈的绑定码</button>
-        <div class="pc-hint" style="margin-top:8px;">让长辈在"首页 → 设备配对"里生成6位绑定码发给你</div>
+        <div class="pc-hint" style="margin-top:8px;">让长辈在"首页 → 设备配对"里生成8位绑定码发给你</div>
       </div>`;
     } else {
       relationList.forEach((p, i) => {
@@ -5718,7 +5924,7 @@ function renderRelationSection() {
       html += `<div class="pair-card" style="text-align:center;">
         <div class="pc-desc" style="color:var(--text-secondary);">还没有关联家人</div>
         <button class="btn btn-primary" onclick="openPairModal()" style="margin-top:12px;">🔗 生成绑定码</button>
-        <div class="pc-hint" style="margin-top:8px;">把6位绑定码发给家人即可完成关联</div>
+        <div class="pc-hint" style="margin-top:8px;">把8位绑定码发给家人即可完成关联</div>
       </div>`;
     } else {
       relationList.forEach(p => {
@@ -5749,8 +5955,8 @@ function showBindCodeInput() {
   overlay.innerHTML = `<div class="alert-popup">
     <div class="ap-icon">🔗</div>
     <div class="ap-title">输入绑定码</div>
-    <div class="ap-desc">请输入长辈发给你的6位绑定码</div>
-    <input class="pc-input" id="bind-code-input" maxlength="6" placeholder="6位绑定码" inputmode="numeric" style="text-align:center;font-size:28px;letter-spacing:8px;margin:12px 0;">
+    <div class="ap-desc">请输入长辈发给你的8位绑定码</div>
+    <input class="pc-input" id="bind-code-input" maxlength="8" placeholder="8位绑定码" inputmode="numeric" style="text-align:center;font-size:26px;letter-spacing:6px;margin:12px 0;">
     <div class="ap-btns">
       <button class="ap-btn" onclick="this.closest('#bind-code-overlay').remove()">取消</button>
       <button class="ap-btn ap-btn-primary" onclick="submitBindCode()" style="background:var(--primary);color:#fff;border-radius:12px;">确认绑定</button>
@@ -5762,7 +5968,7 @@ function showBindCodeInput() {
 
 async function submitBindCode() {
   const code = document.getElementById('bind-code-input').value.trim();
-  if (!/^\d{6}$/.test(code)) { showToast('请输入6位绑定码', 'warning'); return; }
+  if (!/^\d{8}$/.test(code)) { showToast('请输入8位绑定码', 'warning'); return; }
   const r = await apiGet('/api/relation', 'action=bind&code=' + code);
   if (r.error) { showToast(r.error, 'danger'); return; }
   const ov = document.getElementById('bind-code-overlay');
@@ -5980,25 +6186,19 @@ if ('Notification' in window && Notification.permission === 'default') {
 }
 
 // ============================================================
-// PWA：Service Worker 注册 — 临时禁用，确保每次加载最新代码
-// 功能稳定后恢复
+// PWA：Service Worker 注册（已启用）
+// 导航请求网络优先，保证在线时加载最新代码；离线时回退缓存外壳
 // ============================================================
-// if ('serviceWorker' in navigator) {
-//   window.addEventListener('load', function () {
-//     navigator.serviceWorker
-//       .register('./sw.js', { scope: './' })
-//       .then(function (reg) {
-//         console.log('[PWA] Service Worker 注册成功，scope:', reg.scope);
-//       })
-//       .catch(function (err) {
-//         console.error('[PWA] Service Worker 注册失败:', err);
-//       });
-//   });
-// }
-// 同时清除已注册的旧 SW
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs => {
-    regs.forEach(r => r.unregister());
+  window.addEventListener('load', function () {
+    navigator.serviceWorker
+      .register('./sw.js', { scope: './' })
+      .then(function (reg) {
+        console.log('[PWA] Service Worker 注册成功，scope:', reg.scope);
+      })
+      .catch(function (err) {
+        console.error('[PWA] Service Worker 注册失败:', err);
+      });
   });
 }
 </script>

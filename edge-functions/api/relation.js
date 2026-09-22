@@ -7,6 +7,8 @@
 
 const CODE_TTL = 120; // 绑定码有效期秒
 const MAX_RELATIONS = 10;
+const BIND_MAX_FAILS = 5;    // 同一账号连续绑定失败上限
+const BIND_LOCK_SECONDS = 300; // 触发上限后锁定5分钟
 
 export default function onRequest(context) {
   const { request, env } = context;
@@ -63,8 +65,8 @@ async function handleGen(env, userId) {
   const user = await getUser(env, userId);
   if (!user) return json(404, { error: '用户不存在' });
 
-  // 同一用户的新码会覆盖旧码
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  // 同一用户的新码会覆盖旧码（8位数字，配合120秒有效期与失败锁定，防暴力枚举）
+  const code = String(Math.floor(10000000 + Math.random() * 90000000));
   await redisCmd(env, 'SET', 'bindCode:' + code,
     JSON.stringify({ userId, role: user.role, createdAt: Date.now() }),
     'EX', String(CODE_TTL));
@@ -75,10 +77,24 @@ async function handleGen(env, userId) {
 // ---------- 监护人输入绑定码，完成关联 ----------
 async function handleBind(env, caregiverId, data) {
   const code = String(data.code || '').trim();
-  if (!/^\d{6}$/.test(code)) return json(400, { error: '请输入6位绑定码' });
+  if (!/^\d{8}$/.test(code)) return json(400, { error: '请输入8位绑定码' });
+
+  // 防爆破：按发起绑定的账号计数，连续失败 BIND_MAX_FAILS 次锁定
+  const failKey = 'bindFail:' + caregiverId;
+  const failCount = parseInt((await redisCmd(env, 'GET', failKey)).result || '0', 10);
+  if (failCount >= BIND_MAX_FAILS) {
+    return json(429, { error: '绑定失败次数过多，请5分钟后再试' });
+  }
 
   const raw = await redisCmd(env, 'GET', 'bindCode:' + code);
-  if (!raw.result) return json(404, { error: '绑定码无效或已过期' });
+  if (!raw.result) {
+    const cnt = await redisCmd(env, 'INCR', failKey);
+    if (parseInt(cnt.result || '1', 10) === 1) {
+      await redisCmd(env, 'EXPIRE', failKey, String(BIND_LOCK_SECONDS));
+    }
+    const remaining = BIND_MAX_FAILS - parseInt(cnt.result || '1', 10);
+    return json(404, { error: '绑定码无效或已过期' + (remaining > 0 ? '（还可尝试' + remaining + '次）' : '') });
+  }
 
   let info;
   try { info = JSON.parse(raw.result); } catch (e) {
@@ -97,7 +113,7 @@ async function handleBind(env, caregiverId, data) {
   // 检查是否已关联
   const already = await redisCmd(env, 'SISMEMBER', 'relation:' + caregiverId, patientId);
   if (already.result) {
-    await redisCmd(env, 'DEL', 'bindCode:' + code);
+    await redisCmd(env, 'DEL', 'bindCode:' + code, failKey);
     return json(200, { ok: true, already: true });
   }
 
@@ -110,7 +126,7 @@ async function handleBind(env, caregiverId, data) {
   // 双向存储
   await redisCmd(env, 'SADD', 'relation:' + caregiverId, patientId);
   await redisCmd(env, 'SADD', 'relation:' + patientId, caregiverId);
-  await redisCmd(env, 'DEL', 'bindCode:' + code);
+  await redisCmd(env, 'DEL', 'bindCode:' + code, failKey);
 
   return json(200, {
     ok: true,
