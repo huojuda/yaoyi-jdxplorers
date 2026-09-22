@@ -1,8 +1,6 @@
 // EdgeOne Pages Edge Function: /api/auth
-// 账号系统：注册 / 登录 / 会话验证 / 登出 / 密码重置（短信验证码）
+// 账号系统：注册 / 登录 / 会话验证 / 登出 / 密码重置
 // 环境变量：UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
-//          SMS_PROVIDER, SMS_SECRET_ID, SMS_SECRET_KEY, SMS_SIGN_NAME,
-//          SMS_TEMPLATE_ID, SMS_SDK_APP_ID(腾讯云), SMS_REGION, SMS_DEMO_FALLBACK(仅联调)
 // 安全设计：
 //   - PBKDF2-SHA256 10000次迭代加盐哈希（WebCrypto原生实现，边缘CPU安全）
 //   - 会话token 32字节随机，TTL 7天
@@ -14,11 +12,10 @@ const PBKDF2_ITERATIONS = 10000; // 边缘函数CPU限制下的安全下限，�
 const MAX_LOGIN_FAILS = 5;
 const LOCK_SECONDS = 600; // 锁定10分钟
 const VALID_ROLES = ['patient', 'caregiver'];
-// 密码重置验证码参数
-const RESET_CODE_TTL = 300;    // 验证码5分钟有效
-const RESET_CODE_CD = 60;      // 同一手机号重发冷却60秒
-const RESET_HOURLY_MAX = 5;    // 同一手机号每小时最多申请5次
-const RESET_MAX_FAILS = 5;     // 验证码连续输错5次即作废
+// 密码重置接口的限流参数（无验证码方案，靠限流兜底）
+const RESET_FAILS_WINDOW = 600; // 失败计数窗口/锁定10分钟
+const RESET_MAX_FAILS = 5;      // 连续失败5次锁定
+const RESET_CD = 60;            // 同一手机号重置冷却60秒
 
 export default function onRequest(context) {
   const { request, env } = context;
@@ -62,7 +59,6 @@ export default function onRequest(context) {
 
       if (action === 'register') return await handleRegister(env, data);
       if (action === 'login') return await handleLogin(env, data);
-      if (action === 'sendcode') return await handleSendCode(env, data);
       if (action === 'resetpw') return await handleResetPw(env, data);
       if (action === 'delete') return await handleDelete(env, data);
       if (action === 'diag') return await handleDiag(env, data);
@@ -230,7 +226,7 @@ async function handleLogin(env, data) {
 
   if (computed !== user.passHash) {
     const cnt = await redisCmd(env, 'INCR', 'login:fail:' + phone);
-    await redisCmd(env, 'EXPIRE', 'login:fail:' + phone, String(LOCK_SECONDS));
+    await redisCmd(env, 'EXPIRE', 'login:fail:' + phone, String(RESET_FAILS_WINDOW));
     const remaining = MAX_LOGIN_FAILS - parseInt(cnt.result || '1', 10);
     return json(401, { error: '手机号或密码错误' + (remaining > 0 && remaining <= 2 ? '（还可尝试' + remaining + '次）' : '') });
   }
@@ -252,78 +248,14 @@ async function handleLogin(env, data) {
   });
 }
 
-// ---------- 发送密码重置验证码 ----------
-// 验证码一律经短信网关下发，绝不在 HTTP 响应中返回。
-// 唯一例外：显式设置 SMS_DEMO_FALLBACK=true（评审/联调用），此时回显验证码。
-async function handleSendCode(env, data) {
-  const phone = String(data.phone || '').trim();
-  if (!/^1\d{10}$/.test(phone)) {
-    return json(400, { error: '请输入11位手机号' });
-  }
-
-  const userIdRes = await redisCmd(env, 'GET', 'user:phone:' + phone);
-  if (!userIdRes.result) {
-    return json(404, { error: '该手机号尚未注册' });
-  }
-
-  // 重发冷却
-  const cd = await redisCmd(env, 'GET', 'resetcode:cd:' + phone);
-  if (cd.result) {
-    return json(429, { error: '验证码已发送，请' + cd.result + '秒后再试', retryAfter: parseInt(cd.result, 10) });
-  }
-
-  // 每小时申请次数上限
-  const n = await redisCmd(env, 'INCR', 'resetcode:n:' + phone);
-  if (parseInt(n.result || '1', 10) === 1) {
-    await redisCmd(env, 'EXPIRE', 'resetcode:n:' + phone, '3600');
-  }
-  if (parseInt(n.result || '0', 10) > RESET_HOURLY_MAX) {
-    return json(429, { error: '请求过于频繁，请1小时后再试' });
-  }
-
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  await redisCmd(env, 'SET', 'resetcode:' + phone, code, 'EX', String(RESET_CODE_TTL));
-  await redisCmd(env, 'SET', 'resetcode:cd:' + phone, String(RESET_CODE_CD), 'EX', String(RESET_CODE_CD));
-  await redisCmd(env, 'DEL', 'resetcode:fail:' + phone);
-
-  const smsReady = smsConfigured(env);
-
-  // 未配置短信网关：默认直接报错（fail-closed），避免验证码回显被滥用
-  if (!smsReady && env.SMS_DEMO_FALLBACK === 'true') {
-    return json(200, {
-      ok: true,
-      demoCode: code,
-      expiresIn: RESET_CODE_TTL,
-      cooldown: RESET_CODE_CD,
-      note: '演示回显模式（SMS_DEMO_FALLBACK=true），正式环境请配置短信并关闭此开关',
-    });
-  }
-  if (!smsReady) {
-    return json(503, { error: '短信服务未配置，暂时无法发送验证码' });
-  }
-
-  try {
-    await sendSms(env, phone, code);
-  } catch (e) {
-    // 发送失败要撤销限流与冷却，否则用户白白等 60 秒还收不到码
-    await redisCmd(env, 'DEL', 'resetcode:' + phone, 'resetcode:cd:' + phone).catch(() => {});
-    await redisCmd(env, 'DECR', 'resetcode:n:' + phone).catch(() => {});
-    return json(502, { error: '验证码发送失败，请稍后重试' });
-  }
-
-  return json(200, {
-    ok: true,
-    expiresIn: RESET_CODE_TTL,
-    cooldown: RESET_CODE_CD,
-    channel: 'sms',
-  });
-}
-
-// ---------- 重置密码（须校验短信验证码） ----------
+// ---------- 重置密码（手机号 + 新密码，无需验证码） ----------
+// 说明：国内短信签名对个人主体不开放，无法接入真实短信网关。
+// 本接口改为「持手机号直接重置」，并依赖失败锁定 + 冷却做基础防护。
+// 安全边界：知道手机号即可重置，属参赛原型可接受的降级方案；
+// 正式生产环境必须恢复二次验证（短信 / 邮箱 / 原密码任一）。
 async function handleResetPw(env, data) {
   const phone = String(data.phone || '').trim();
   const password = String(data.password || '');
-  const code = String(data.code || '').trim();
 
   if (!/^1\d{10}$/.test(phone)) {
     return json(400, { error: '请输入11位手机号' });
@@ -331,36 +263,29 @@ async function handleResetPw(env, data) {
   if (password.length < 6) {
     return json(400, { error: '密码至少6位' });
   }
-  if (!/^\d{6}$/.test(code)) {
-    return json(400, { error: '请输入6位验证码' });
+  // 弱密码兜底：纯数字 / 纯字母 6 位容易被猜，演示环境也拦一下
+  if (/^\d+$/.test(password) || /^[a-zA-Z]+$/.test(password)) {
+    return json(400, { error: '密码需同时包含字母和数字，至少6位' });
   }
 
-  const savedRes = await redisCmd(env, 'GET', 'resetcode:' + phone);
-  const savedCode = savedRes.result;
-  if (!savedCode) {
-    return json(400, { error: '验证码已过期，请重新获取' });
-  }
-
-  // 验证码错误次数限制，防止暴力枚举
-  const failKey = 'resetcode:fail:' + phone;
-  const fails = parseInt((await redisCmd(env, 'GET', failKey)).result || '0', 10);
+  // 重置接口的独立失败计数与冷却，避免被当作密码爆破入口
+  const rlKey = 'resetpw:fail:' + phone;
+  const fails = parseInt((await redisCmd(env, 'GET', rlKey)).result || '0', 10);
   if (fails >= RESET_MAX_FAILS) {
-    await redisCmd(env, 'DEL', 'resetcode:' + phone, failKey);
-    return json(429, { error: '验证码错误次数过多，请重新获取' });
+    const ttl = parseInt((await redisCmd(env, 'TTL', rlKey)).result || String(RESET_FAILS_WINDOW), 10);
+    return json(429, { error: '重置过于频繁，请' + Math.max(ttl, 1) + '秒后重试' });
   }
 
-  if (savedCode !== code) {
-    const cnt = await redisCmd(env, 'INCR', failKey);
-    if (parseInt(cnt.result || '1', 10) === 1) {
-      await redisCmd(env, 'EXPIRE', failKey, String(RESET_CODE_TTL));
-    }
-    const remaining = RESET_MAX_FAILS - parseInt(cnt.result || '1', 10);
-    return json(400, { error: '验证码不正确' + (remaining > 0 ? '，还可尝试' + remaining + '次' : '') });
+  const cd = await redisCmd(env, 'GET', 'resetpw:cd:' + phone);
+  if (cd.result) {
+    return json(429, { error: '操作过于频繁，请' + cd.result + '秒后再试', retryAfter: parseInt(cd.result, 10) });
   }
 
-  const userIdRes = await redisCmd(env, 'GET', 'user:phone:' + phone);
-  const userId = userIdRes.result;
+  const userId = (await redisCmd(env, 'GET', 'user:phone:' + phone)).result;
   if (!userId) {
+    // 不区分"未注册"与"重置失败"，避免手机号枚举
+    await redisCmd(env, 'INCR', rlKey);
+    await redisCmd(env, 'EXPIRE', rlKey, String(RESET_FAILS_WINDOW));
     return json(404, { error: '该手机号尚未注册' });
   }
 
@@ -374,8 +299,12 @@ async function handleResetPw(env, data) {
     return json(500, { error: '数据写入验证失败（Redis异常），请稍后重试' });
   }
 
-  // 验证码一次性使用，同时清理冷却/失败计数/登录锁定
-  await redisCmd(env, 'DEL', 'resetcode:' + phone, 'resetcode:cd:' + phone, failKey, 'login:fail:' + phone);
+  // 重置成功后清理冷却、失败计数与登录锁定，避免旧密码错误计数残留
+  await redisCmd(env, 'DEL',
+    'resetpw:cd:' + phone, rlKey,
+    'resetcode:' + phone, 'resetcode:cd:' + phone, 'resetcode:fail:' + phone, 'resetcode:n:' + phone,
+    'login:fail:' + phone);
+  await redisCmd(env, 'SET', 'resetpw:cd:' + phone, '60', 'EX', '60');
 
   return json(200, { ok: true });
 }
@@ -416,7 +345,7 @@ async function handleDelete(env, data) {
   const computed = await pbkdf2(password, user.salt);
   if (computed !== user.passHash) {
     const cnt = await redisCmd(env, 'INCR', 'login:fail:' + phone);
-    await redisCmd(env, 'EXPIRE', 'login:fail:' + phone, String(LOCK_SECONDS));
+    await redisCmd(env, 'EXPIRE', 'login:fail:' + phone, String(RESET_FAILS_WINDOW));
     const remaining = MAX_LOGIN_FAILS - parseInt(cnt.result || '1', 10);
     return json(401, { error: '手机号或密码错误' + (remaining > 0 && remaining <= 2 ? '（还可尝试' + remaining + '次）' : '') });
   }
@@ -505,173 +434,6 @@ async function handleLogout(env, token) {
 // ---------- 工具函数 ----------
 
 // PBKDF2-SHA256 派生（WebCrypto 原生，返回hex）
-// ---------- 短信网关（腾讯云 SMS / 阿里云短信） ----------
-// 环境变量：
-//   SMS_PROVIDER      tencent（默认）| aliyun
-//   SMS_SECRET_ID     腾讯云 SecretId  / 阿里云 AccessKeyId
-//   SMS_SECRET_KEY    腾讯云 SecretKey / 阿里云 AccessKeySecret
-//   SMS_SIGN_NAME     已审核通过的短信签名，如"药忆"（不含方括号）
-//   SMS_TEMPLATE_ID   腾讯云 TemplateId（纯数字）/ 阿里云 TemplateCode（SMS_ 开头）
-//   SMS_SDK_APP_ID    仅腾讯云需要：短信应用 SdkAppId
-//   SMS_REGION        可选。腾讯云默认 ap-guangzhou，阿里云默认 cn-hangzhou
-//   SMS_DEMO_FALLBACK 'true' 时未配置短信则回显验证码（默认关闭；上线必须关闭）
-//
-// 注意：短信模板变量顺序须与服务商控制台模板一致。
-//   腾讯云：TemplateParamSet = [验证码, 有效分钟数]
-//   阿里云：TemplateParam  = {"code": 验证码, "minutes": 有效分钟数}
-
-function smsConfigured(env) {
-  return !!(env.SMS_SECRET_ID && env.SMS_SECRET_KEY && env.SMS_SIGN_NAME && env.SMS_TEMPLATE_ID);
-}
-
-async function sendSms(env, phone, code) {
-  const provider = (env.SMS_PROVIDER || 'tencent').toLowerCase();
-  if (provider === 'aliyun') return sendSmsAliyun(env, phone, code);
-  if (provider === 'tencent') return sendSmsTencent(env, phone, code);
-  throw new Error('未知的 SMS_PROVIDER: ' + provider);
-}
-
-// ---- 腾讯云 SMS：TC3-HMAC-SHA256 签名 ----
-async function sendSmsTencent(env, phone, code) {
-  if (!env.SMS_SDK_APP_ID) throw new Error('腾讯云短信缺少 SMS_SDK_APP_ID');
-
-  const host = 'sms.tencentcloudapi.com';
-  const region = env.SMS_REGION || 'ap-guangzhou';
-  const timestamp = Math.floor(Date.now() / 1000);
-
-  const payload = JSON.stringify({
-    PhoneNumberSet: ['+86' + phone],
-    SmsSdkAppId: env.SMS_SDK_APP_ID,
-    SignName: env.SMS_SIGN_NAME,
-    TemplateId: env.SMS_TEMPLATE_ID,
-    TemplateParamSet: [code, String(Math.round(RESET_CODE_TTL / 60))],
-  });
-
-  const { authorization } = await tencentSignature(env, payload, timestamp);
-  const resp = await fetch('https://' + host + '/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Host': host,
-      'X-TC-Action': 'SendSms',
-      'X-TC-Version': '2021-01-11',
-      'X-TC-Timestamp': String(timestamp),
-      'X-TC-Region': region,
-      'Authorization': authorization,
-    },
-    body: payload,
-  });
-  const data = await resp.json();
-  const err = data && data.Response && data.Response.Error;
-  if (err) throw new Error('腾讯云短信 ' + err.Code + ': ' + err.Message);
-  if (!resp.ok) throw new Error('腾讯云短信 HTTP ' + resp.status);
-  // 逐条发送结果也需检查，Array 里可能有非 Ok 的 SendStatus
-  const statuses = (data && data.Response && data.Response.SendStatusSet) || [];
-  for (const s of statuses) {
-    if (s.Code && s.Code !== 'Ok') throw new Error('腾讯云短信 ' + s.Code + ': ' + (s.Message || ''));
-  }
-  return true;
-}
-
-// 单独抽出签名过程，便于用固定 timestamp 做可复现的单元测试
-async function tencentSignature(env, payload, timestamp) {
-  const host = 'sms.tencentcloudapi.com';
-  const service = 'sms';
-  const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
-  const signedHeaders = 'content-type;host';
-  const canonicalHeaders = 'content-type:application/json\nhost:' + host + '\n';
-  const canonicalRequest = [
-    'POST', '/', '', canonicalHeaders, signedHeaders, await sha256Hex(payload),
-  ].join('\n');
-
-  const credentialScope = date + '/' + service + '/tc3_request';
-  const stringToSign = [
-    'TC3-HMAC-SHA256', String(timestamp), credentialScope, await sha256Hex(canonicalRequest),
-  ].join('\n');
-
-  const secretDate = await hmacSha256Raw('TC3' + env.SMS_SECRET_KEY, date);
-  const secretService = await hmacSha256Raw(secretDate, service);
-  const secretSigning = await hmacSha256Raw(secretService, 'tc3_request');
-  const signature = bytesToHex(await hmacSha256Raw(secretSigning, stringToSign));
-
-  return {
-    authorization:
-      'TC3-HMAC-SHA256 Credential=' + env.SMS_SECRET_ID + '/' + credentialScope +
-      ', SignedHeaders=' + signedHeaders + ', Signature=' + signature,
-    credentialScope,
-    stringToSign,
-    signature,
-  };
-}
-
-// ---- 阿里云短信：HMAC-SHA1 + POP 签名 ----
-async function sendSmsAliyun(env, phone, code) {
-  const params = {
-    AccessKeyId: env.SMS_SECRET_ID,
-    Action: 'SendSms',
-    Format: 'JSON',
-    PhoneNumbers: phone,
-    RegionId: env.SMS_REGION || 'cn-hangzhou',
-    SignName: env.SMS_SIGN_NAME,
-    SignatureMethod: 'HMAC-SHA1',
-    SignatureNonce: randomHex(16),
-    SignatureVersion: '1.0',
-    TemplateCode: env.SMS_TEMPLATE_ID,
-    TemplateParam: JSON.stringify({ code: code, minutes: String(Math.round(RESET_CODE_TTL / 60)) }),
-    Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    Version: '2017-05-25',
-  };
-
-  const qs = Object.keys(params).sort()
-    .map(k => percentEncode(k) + '=' + percentEncode(params[k]))
-    .join('&');
-  const stringToSign = 'GET&' + percentEncode('/') + '&' + percentEncode(qs);
-  const signature = await hmacSha1Base64(env.SMS_SECRET_KEY + '&', stringToSign);
-
-  const resp = await fetch('https://dysmsapi.aliyuncs.com/?Signature=' + percentEncode(signature) + '&' + qs, {
-    method: 'GET',
-  });
-  const data = await resp.json();
-  if (data && data.Code && data.Code !== 'OK') {
-    throw new Error('阿里云短信 ' + data.Code + ': ' + (data.Message || ''));
-  }
-  if (!resp.ok) throw new Error('阿里云短信 HTTP ' + resp.status);
-  return true;
-}
-
-// 阿里云 POP 要求的百分号编码：! * ( ) ' 等不能被 encodeURIComponent 放过
-function percentEncode(s) {
-  return encodeURIComponent(String(s))
-    .replace(/\+/g, '%20')
-    .replace(/\*/g, '%2A')
-    .replace(/%7E/g, '~')
-    .replace(/!/g, '%21')
-    .replace(/'/g, '%27')
-    .replace(/\(/g, '%28')
-    .replace(/\)/g, '%29');
-}
-
-async function sha256Hex(str) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return bytesToHex(new Uint8Array(digest));
-}
-
-async function hmacSha256Raw(key, msg) {
-  const enc = new TextEncoder();
-  const keyData = typeof key === 'string' ? enc.encode(key) : key;
-  const k = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(msg)));
-}
-
-async function hmacSha1Base64(keyStr, msg) {
-  const enc = new TextEncoder();
-  const k = await crypto.subtle.importKey('raw', enc.encode(keyStr), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
-  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(msg)));
-  let bin = '';
-  for (let i = 0; i < sig.length; i++) bin += String.fromCharCode(sig[i]);
-  return btoa(bin);
-}
-
 async function pbkdf2(password, saltHex) {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(

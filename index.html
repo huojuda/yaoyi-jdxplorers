@@ -2105,14 +2105,11 @@ body {
     <div class="auth-label" id="auth-password-label">密码</div>
     <input type="password" class="auth-input" id="auth-password" placeholder="至少6位" maxlength="20">
 
-    <!-- 短信验证码（仅重置密码时显示） -->
+    <!-- 重置密码提示（无短信验证码，改为持手机号直接重置） -->
     <div id="auth-code-group" style="display:none;">
-      <div class="auth-label">短信验证码</div>
-      <div style="display:flex;gap:8px;">
-        <input type="tel" class="auth-input" id="auth-code" placeholder="6位验证码" maxlength="6" inputmode="numeric" style="flex:1;">
-        <button type="button" class="btn btn-ghost" id="send-code-btn" onclick="sendResetCode()" style="width:auto;white-space:nowrap;padding:0 14px;font-size:14px;margin:0;">获取验证码</button>
+      <div id="auth-code-hint" style="font-size:12px;color:var(--warning);margin-top:6px;line-height:1.6;">
+        输入手机号和新密码即可重置。为保护账号，重置后 60 秒内不能重复操作。
       </div>
-      <div id="auth-code-hint" style="font-size:12px;color:var(--warning);margin-top:4px;line-height:1.5;display:none;"></div>
     </div>
 
     <div id="forgot-row" style="text-align:right;margin-top:6px;">
@@ -5495,12 +5492,6 @@ function switchAuthMode(mode) {
   document.getElementById('forgot-row').style.display = isLogin ? 'block' : 'none';
   document.getElementById('auth-code-group').style.display = isReset ? 'block' : 'none';
   document.getElementById('auth-password-label').textContent = isReset ? '新密码' : '密码';
-  if (!isReset) {
-    document.getElementById('auth-code').value = '';
-    const codeHint = document.getElementById('auth-code-hint');
-    codeHint.style.display = 'none';
-    codeHint.textContent = '';
-  }
   document.getElementById('delete-row').style.display = (isLogin || isReset) ? 'block' : 'none';
   document.getElementById('auth-title').textContent = isDelete ? '注销账号' : (isReset ? '重置密码' : (isLogin ? '登录' : '注册'));
   document.getElementById('auth-submit').textContent = isDelete ? '确认注销' : (isReset ? '重置密码' : (isLogin ? '登 录' : '注 册'));
@@ -5519,56 +5510,16 @@ function pickRole(role) {
   document.getElementById('role-caregiver').classList.toggle('active', role === 'caregiver');
 }
 
-// 发送密码重置验证码（原型演示环境验证码直接展示，正式版走短信）
-async function sendResetCode() {
-  const phone = document.getElementById('auth-phone').value.trim();
-  if (!/^1\d{10}$/.test(phone)) { showToast('请先输入11位手机号', 'warning'); return; }
-  const btn = document.getElementById('send-code-btn');
-  if (btn.disabled) return;
-  btn.disabled = true;
-  btn.textContent = '发送中…';
-
-  const r = await apiPost('/api/auth', { action: 'sendcode', phone });
-  if (r.error) {
-    btn.disabled = false;
-    btn.textContent = '获取验证码';
-    showToast(r.error, 'danger');
-    return;
-  }
-
-  const hint = document.getElementById('auth-code-hint');
-  if (r.demoCode) {
-    // 仅当后端 SMS_DEMO_FALLBACK=true 时才出现，正式环境不应有此字段
-    hint.style.display = 'block';
-    hint.textContent = '演示环境验证码：' + r.demoCode + '（正式版将短信发送，' + (r.expiresIn || 300) + '秒内有效）';
-  } else {
-    hint.style.display = 'block';
-    hint.textContent = '验证码已发送至 ' + phone.slice(0, 3) + '****' + phone.slice(7) + '，' + (r.expiresIn || 300) + '秒内有效';
-  }
-  let cd = r.cooldown || 60;
-  btn.textContent = cd + '秒后重发';
-  const timer = setInterval(() => {
-    cd--;
-    if (cd <= 0) {
-      clearInterval(timer);
-      btn.disabled = false;
-      btn.textContent = '获取验证码';
-    } else {
-      btn.textContent = cd + '秒后重发';
-    }
-  }, 1000);
-  showToast('验证码已发送', 'success');
-}
-
 async function handleAuthSubmit() {
   const phone = document.getElementById('auth-phone').value.trim();
   const password = document.getElementById('auth-password').value;
   const displayName = document.getElementById('auth-name').value.trim();
-  const code = document.getElementById('auth-code').value.trim();
 
   if (!/^1\d{10}$/.test(phone)) { showToast('请输入11位手机号', 'warning'); return; }
   if (password.length < 6) { showToast('密码至少6位', 'warning'); return; }
-  if (authMode === 'reset' && !/^\d{6}$/.test(code)) { showToast('请输入6位短信验证码', 'warning'); return; }
+  if ((authMode === 'reset' || authMode === 'register') && (/^\d+$/.test(password) || /^[a-zA-Z]+$/.test(password))) {
+    showToast('密码需同时包含字母和数字', 'warning'); return;
+  }
 
   // 注销前二次确认
   if (authMode === 'delete' && !confirm('确定要永久注销账号吗？\n注销后账号数据将被删除且无法恢复！')) return;
@@ -5580,7 +5531,7 @@ async function handleAuthSubmit() {
   const body = authMode === 'register'
     ? { action: 'register', phone, password, role: pickedRole, displayName }
     : authMode === 'reset'
-      ? { action: 'resetpw', phone, password, code }
+      ? { action: 'resetpw', phone, password }
       : authMode === 'delete'
         ? { action: 'delete', phone, password }
         : { action: 'login', phone, password };
@@ -5600,7 +5551,6 @@ async function handleAuthSubmit() {
   }
 
   if (authMode === 'reset') {
-    document.getElementById('auth-code').value = '';
     showToast('密码已重置，请用新密码登录', 'success');
     switchAuthMode('login');
     return;
@@ -5641,7 +5591,7 @@ function apiUrl(path, extraQS = '') {
 async function apiPost(path, body, extraQS = '') {
   try {
     // 图片识药、账号敏感操作（密码/验证码不得拼进 URL）必须用 POST
-    const SENSITIVE_AUTH_ACTIONS = ['register', 'login', 'resetpw', 'delete', 'sendcode'];
+    const SENSITIVE_AUTH_ACTIONS = ['register', 'login', 'resetpw', 'delete'];
     const needsPost = (body && body.image && body.image.length > 1000)
       || (path === '/api/auth' && body && SENSITIVE_AUTH_ACTIONS.indexOf(body.action) >= 0);
     if (!needsPost) {
