@@ -399,7 +399,7 @@
 | ---------- | -------- | ------------------------------------------------------ |
 | `register` | **POST** | 注册（phone, password, role, displayName），注册即登录           |
 | `login`    | **POST** | 登录（phone, password），失败 5 次锁定 10 分钟                     |
-| `sendcode` | **POST** | 发送密码重置验证码（phone）；60 秒冷却、每小时 5 次；原型在响应 `demoCode` 返回验证码 |
+| `sendcode` | **POST** | 发送密码重置验证码（phone）；60 秒冷却、每小时 5 次；**验证码经短信下发，不回显**。仅当 `SMS_DEMO_FALLBACK=true` 时才在响应 `demoCode` 返回 |
 | `resetpw`  | **POST** | 重置密码（phone, password, **code**），验证码一次性、错 5 次作废         |
 | `delete`   | **POST** | 注销账号（phone, password），删除全部数据不可恢复                       |
 | `me`       | GET      | 会话验证并滑动续期                                              |
@@ -491,7 +491,7 @@
 
 
 
-1. **重置验证码为演示实现**：原型未接入短信网关，`sendcode` 在响应体 `demoCode` 中直接返回验证码并在页面提示，仅用于演示与评审。**生产环境必须删除&#x20;**`demoCode`**&#x20;字段，改接短信服务商，并保留冷却、频次与错误次数限制。**
+1. **重置验证码走短信网关**：已接入腾讯云 SMS / 阿里云短信（见下表环境变量），验证码不在 HTTP 响应中返回。未配置短信网关时 `sendcode` 直接返回 503（fail-closed）；如需评审联调，可临时设 `SMS_DEMO_FALLBACK=true` 恢复演示回显，**上线前必须移除该开关**。冷却（60 秒）、频次（每小时 5 次）、有效期（5 分钟）、错 5 次作废等限制均保留；短信发送失败会自动撤销冷却与计数，避免用户空等。
 
 2. **医疗免责**：所有 AI 识别、问答、联合用药分析与话术均为健康科普参考，不构成诊断或处方；涉及剂量调整、换药、停药等必须咨询医生或药师，应用内已固定提示 "以上为 AI 参考，具体请遵医嘱"。
 
@@ -588,6 +588,17 @@ python server.py
 | `YAOWI_API_KEY`            | 火山方舟 API Key                             |
 | `YAOWI_API_ENDPOINT`       | 火山方舟端点（可选，默认北京区）                         |
 | `YAOWI_MODEL_ID`           | 模型 ID（可选，默认 doubao-seed-2-0-mini-260428） |
+| `SMS_PROVIDER`             | `tencent`（默认）/ `aliyun`                  |
+| `SMS_SECRET_ID`            | 腾讯云 SecretId / 阿里云 AccessKeyId          |
+| `SMS_SECRET_KEY`           | 腾讯云 SecretKey / 阿里云 AccessKeySecret     |
+| `SMS_SIGN_NAME`            | 已审核通过的短信签名，如"药忆"（不带方括号）             |
+| `SMS_TEMPLATE_ID`          | 腾讯云 TemplateId（纯数字）/ 阿里云 TemplateCode（`SMS_` 开头） |
+| `SMS_SDK_APP_ID`           | 仅腾讯云：短信应用 SdkAppId                       |
+| `SMS_REGION`               | 可选。腾讯云默认 `ap-guangzhou`，阿里云默认 `cn-hangzhou` |
+| `SMS_DEMO_FALLBACK`        | 可选。设为 `true` 时未配置短信则回显验证码，**上线必须移除**     |
+
+> 短信模板变量：腾讯云下发 `TemplateParamSet = [验证码, 有效分钟数]`；阿里云下发 `{"code": 验证码, "minutes": 有效分钟数}`。
+> 两侧签名实现（Python `_tencent_signature` / JS `tencentSignature`）已用固定时间戳做过一致性验证，见 `test_sms_signature.py`。
 
 部署注意：
 

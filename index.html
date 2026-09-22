@@ -5538,8 +5538,12 @@ async function sendResetCode() {
 
   const hint = document.getElementById('auth-code-hint');
   if (r.demoCode) {
+    // 仅当后端 SMS_DEMO_FALLBACK=true 时才出现，正式环境不应有此字段
     hint.style.display = 'block';
     hint.textContent = '演示环境验证码：' + r.demoCode + '（正式版将短信发送，' + (r.expiresIn || 300) + '秒内有效）';
+  } else {
+    hint.style.display = 'block';
+    hint.textContent = '验证码已发送至 ' + phone.slice(0, 3) + '****' + phone.slice(7) + '，' + (r.expiresIn || 300) + '秒内有效';
   }
   let cd = r.cooldown || 60;
   btn.textContent = cd + '秒后重发';

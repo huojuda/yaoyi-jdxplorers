@@ -23,6 +23,7 @@ import urllib.request
 import urllib.error
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+import urllib.parse
 from pathlib import Path
 
 # ========== 配置 ==========
@@ -83,8 +84,165 @@ DUPLICATE_SYSTEM_PROMPT = '''你是一位温暖、耐心的老年照护顾问，
 UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "")
 UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 
+# 短信网关配置（与 edge-functions/api/auth.js 完全同构）
+#   SMS_PROVIDER      tencent（默认）| aliyun
+#   SMS_SECRET_ID     腾讯云 SecretId  / 阿里云 AccessKeyId
+#   SMS_SECRET_KEY    腾讯云 SecretKey / 阿里云 AccessKeySecret
+#   SMS_SIGN_NAME     已审核通过的短信签名，如"药忆"（不含方括号）
+#   SMS_TEMPLATE_ID   腾讯云 TemplateId（纯数字）/ 阿里云 TemplateCode（SMS_ 开头）
+#   SMS_SDK_APP_ID    仅腾讯云需要：短信应用 SdkAppId
+#   SMS_REGION        可选。腾讯云默认 ap-guangzhou，阿里云默认 cn-hangzhou
+#   SMS_DEMO_FALLBACK "true" 时未配置短信则回显验证码（默认关闭；上线必须关闭）
+SMS_PROVIDER = os.environ.get("SMS_PROVIDER", "tencent").lower()
+SMS_SECRET_ID = os.environ.get("SMS_SECRET_ID", "")
+SMS_SECRET_KEY = os.environ.get("SMS_SECRET_KEY", "")
+SMS_SIGN_NAME = os.environ.get("SMS_SIGN_NAME", "")
+SMS_TEMPLATE_ID = os.environ.get("SMS_TEMPLATE_ID", "")
+SMS_SDK_APP_ID = os.environ.get("SMS_SDK_APP_ID", "")
+SMS_REGION = os.environ.get("SMS_REGION", "")
+SMS_DEMO_FALLBACK = os.environ.get("SMS_DEMO_FALLBACK", "").lower() == "true"
+
 # 静态文件根目录 = 当前目录（index.html 所在目录）
 STATIC_DIR = str(Path(__file__).resolve().parent)
+
+
+# ========== 短信网关 ==========
+def sms_configured():
+    return bool(SMS_SECRET_ID and SMS_SECRET_KEY and SMS_SIGN_NAME and SMS_TEMPLATE_ID)
+
+
+def _percent_encode(s):
+    """阿里云 POP 要求的百分号编码"""
+    return urllib.parse.quote(str(s), safe="-_.~").replace("+", "%20").replace("*", "%2A")
+
+
+def _utc_now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _utc_date():
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def send_sms(phone, code, minutes):
+    """发送验证码短信。腾讯云走 TC3-HMAC-SHA256，阿里云走 POP HMAC-SHA1。"""
+    if not sms_configured():
+        raise RuntimeError("短信网关未配置")
+    if SMS_PROVIDER == "aliyun":
+        return _send_sms_aliyun(phone, code, minutes)
+    return _send_sms_tencent(phone, code, minutes)
+
+
+def _tencent_signature(payload: bytes, timestamp: int) -> str:
+    """腾讯云 TC3-HMAC-SHA256 签名（抽出以便用固定 timestamp 做可复现测试）"""
+    import hmac
+
+    host = "sms.tencentcloudapi.com"
+    service = "sms"
+    date = time.strftime("%Y-%m-%d", time.gmtime(timestamp))  # 必须由 timestamp 推导，与 JS 实现一致
+    signed_headers = "content-type;host"
+    canonical_headers = "content-type:application/json\nhost:" + host + "\n"
+    canonical_request = "\n".join(
+        ["POST", "/", "", canonical_headers, signed_headers, hashlib.sha256(payload).hexdigest()]
+    )
+    credential_scope = f"{date}/{service}/tc3_request"
+    string_to_sign = "\n".join([
+        "TC3-HMAC-SHA256", str(timestamp), credential_scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+    ])
+
+    def _hmac(key, msg):
+        return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+    secret_date = _hmac(("TC3" + SMS_SECRET_KEY).encode("utf-8"), date)
+    secret_service = _hmac(secret_date, service)
+    secret_signing = _hmac(secret_service, "tc3_request")
+    signature = hmac.new(secret_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    return (
+        f"TC3-HMAC-SHA256 Credential={SMS_SECRET_ID}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+
+
+def _send_sms_tencent(phone, code, minutes):
+    if not SMS_SDK_APP_ID:
+        raise RuntimeError("腾讯云短信缺少 SMS_SDK_APP_ID")
+
+    host = "sms.tencentcloudapi.com"
+    region = SMS_REGION or "ap-guangzhou"
+    timestamp = int(time.time())
+
+    payload = json.dumps({
+        "PhoneNumberSet": ["+86" + phone],
+        "SmsSdkAppId": SMS_SDK_APP_ID,
+        "SignName": SMS_SIGN_NAME,
+        "TemplateId": SMS_TEMPLATE_ID,
+        "TemplateParamSet": [code, str(minutes)],
+    }, ensure_ascii=False).encode("utf-8")
+
+    authorization = _tencent_signature(payload, timestamp)
+
+    req = urllib.request.Request(
+        "https://" + host + "/",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Host": host,
+            "X-TC-Action": "SendSms",
+            "X-TC-Version": "2021-01-11",
+            "X-TC-Timestamp": str(timestamp),
+            "X-TC-Region": region,
+            "Authorization": authorization,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    resp_body = data.get("Response", {})
+    err = resp_body.get("Error")
+    if err:
+        raise RuntimeError(f"腾讯云短信 {err.get('Code')}: {err.get('Message')}")
+    for s in resp_body.get("SendStatusSet", []):
+        if s.get("Code") and s.get("Code") != "Ok":
+            raise RuntimeError(f"腾讯云短信 {s.get('Code')}: {s.get('Message', '')}")
+    return True
+
+
+def _send_sms_aliyun(phone, code, minutes):
+    import hmac
+    import base64
+
+    params = {
+        "AccessKeyId": SMS_SECRET_ID,
+        "Action": "SendSms",
+        "Format": "JSON",
+        "PhoneNumbers": phone,
+        "RegionId": SMS_REGION or "cn-hangzhou",
+        "SignName": SMS_SIGN_NAME,
+        "SignatureMethod": "HMAC-SHA1",
+        "SignatureNonce": os.urandom(16).hex(),
+        "SignatureVersion": "1.0",
+        "TemplateCode": SMS_TEMPLATE_ID,
+        "TemplateParam": json.dumps({"code": code, "minutes": str(minutes)}, ensure_ascii=False),
+        "Timestamp": _utc_now_iso(),
+        "Version": "2017-05-25",
+    }
+    qs = "&".join(
+        f"{_percent_encode(k)}={_percent_encode(params[k])}" for k in sorted(params)
+    )
+    string_to_sign = "GET&" + _percent_encode("/") + "&" + _percent_encode(qs)
+    signature = base64.b64encode(
+        hmac.new((SMS_SECRET_KEY + "&").encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha1).digest()
+    ).decode("utf-8")
+
+    url = "https://dysmsapi.aliyuncs.com/?Signature=" + _percent_encode(signature) + "&" + qs
+    with urllib.request.urlopen(url, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("Code") and data.get("Code") != "OK":
+        raise RuntimeError(f"阿里云短信 {data.get('Code')}: {data.get('Message', '')}")
+    return True
 
 
 # ========== Upstash Redis 辅助函数 ==========
@@ -801,7 +959,7 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         self._send_json(200, {"token": token, "user": {"userId": user_id, "phone": user.get("phone"), "role": user.get("role"), "displayName": user.get("displayName")}})
 
     def _auth_sendcode(self, data):
-        """发送密码重置验证码（原型版无短信网关，验证码在响应 demoCode 中直接返回）"""
+        """发送密码重置验证码（经短信网关下发，不在响应中返回验证码）"""
         phone = str(data.get("phone", "")).strip()
         if not (phone.startswith("1") and len(phone) == 11 and phone.isdigit()):
             self._send_json(400, {"error": "请输入11位手机号"})
@@ -830,14 +988,37 @@ class YaoyiHandler(SimpleHTTPRequestHandler):
         redis_cmd("SET", "resetcode:" + phone, code, "EX", "300")
         redis_cmd("SET", "resetcode:cd:" + phone, "60", "EX", "60")
         redis_cmd("DEL", "resetcode:fail:" + phone)
-        print(f"[账号] 重置验证码已发送: {phone} → {code}（演示环境）")
-        self._send_json(200, {
-            "ok": True,
-            "demoCode": code,  # 仅原型演示：生产环境删除，改走短信
-            "expiresIn": 300,
-            "cooldown": 60,
-            "note": "原型演示环境，验证码直接展示；正式版将通过短信下发",
-        })
+
+        # 未配置短信网关：默认直接报错（fail-closed），避免验证码回显被滥用
+        if not sms_configured():
+            if SMS_DEMO_FALLBACK:
+                print(f"[账号] 演示回显模式，重置验证码: {phone} → {code}")
+                self._send_json(200, {
+                    "ok": True,
+                    "demoCode": code,
+                    "expiresIn": 300,
+                    "cooldown": 60,
+                    "note": "演示回显模式（SMS_DEMO_FALLBACK=true），正式环境请配置短信并关闭此开关",
+                })
+                return
+            redis_cmd("DEL", "resetcode:" + phone, "resetcode:cd:" + phone)
+            self._send_json(503, {"error": "短信服务未配置，暂时无法发送验证码"})
+            return
+
+        try:
+            send_sms(phone, code, 5)
+        except Exception as e:
+            # 发送失败要撤销限流与冷却，否则用户白白等 60 秒还收不到码
+            print(f"[账号] 短信发送失败: {phone} → {e}")
+            try:
+                redis_cmd("DEL", "resetcode:" + phone, "resetcode:cd:" + phone)
+            except Exception:
+                pass
+            self._send_json(502, {"error": "验证码发送失败，请稍后重试"})
+            return
+
+        print(f"[账号] 重置验证码已短信下发: {phone}")
+        self._send_json(200, {"ok": True, "expiresIn": 300, "cooldown": 60, "channel": "sms"})
 
     def _auth_resetpw(self, data):
         """重置密码（须校验6位验证码）"""
