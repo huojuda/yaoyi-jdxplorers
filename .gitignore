@@ -37,3 +37,8 @@ dist-upload.zip
 
 .vercel
 .env*
+
+# 内部文档：仓库根目录即站点根目录，会随构建公开，故不纳入版本控制
+EdgeOne-部署核对清单.md
+EdgeOne-部署执行手册.md
+药忆-创作说明.docx
