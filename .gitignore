@@ -2,6 +2,11 @@
 api_config.json
 models.json
 
+# 以下文件已被 EdgeOne 当作静态资源公开发布过（仓库根目录 = 站点根目录），
+# 故停止纳入版本控制，仅保留在本地。若需重新提交，请先确认不会被公开托管。
+server.py
+debug-edgeone-token-error.md
+
 # Python
 __pycache__/
 *.pyc
