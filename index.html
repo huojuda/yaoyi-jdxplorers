@@ -2130,39 +2130,42 @@ body {
   </div>
 </div>
 
-<!-- ==================== 拍照页 ==================== -->
+<!-- ==================== 拍照页（同一界面内并行支持"拍照"与"相册"两种方式） ==================== -->
 <div id="page-camera" class="page">
   <div class="section-title" style="margin-top:0;">📷 拍摄药盒</div>
 
-  <!-- 摄像头区域 -->
+  <!-- 摄像头预览区域：仅在摄像头就绪后显示 -->
   <div class="camera-container" id="camera-container" style="display:none;">
-    <video id="camera-video" autoplay playsinline></video>
+    <video id="camera-video" autoplay playsinline muted></video>
+    <!-- 取帧画布：拍照时把当前视频帧画到这里。此前 HTML 中缺失该元素，
+         导致 capturePhoto() 拿到 null 后抛错、点击拍照毫无反应 -->
+    <canvas id="camera-canvas" style="display:none"></canvas>
     <div class="camera-overlay">
       <div class="camera-frame"></div>
       <div class="camera-hint-text">将药盒对准框内，拍清楚上面的字</div>
     </div>
   </div>
 
-  <!-- 摄像头不可用时的降级方案 -->
+  <!-- 同一界面内的状态提示区（启动中 / 不可用），不再单独占用一个页面 -->
   <div class="camera-fallback" id="camera-fallback">
-    <span class="fallback-icon">🖼️</span>
-    <div class="fallback-text">摄像头暂不可用<br>您可以从相册选择药盒照片</div>
-    <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
-    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
-      📁 从相册选择照片
-    </button>
+    <span class="fallback-icon">⏳</span>
+    <div class="fallback-text" id="camera-status-text">正在启动摄像头…</div>
+  </div>
+
+  <!-- 拍照按钮：摄像头就绪时显示，拍完自动进入识别 -->
+  <div id="capture-area" style="display:none; text-align:center;">
+    <button class="capture-btn" onclick="capturePhoto()">📸</button>
+    <div style="font-size:15px; color:var(--text-secondary); margin-top:12px;">点击圆形按钮拍照，拍完自动识别</div>
   </div>
 
   <div style="height:20px;"></div>
 
-  <!-- 拍照按钮（摄像头可用时显示） -->
-  <div id="capture-area" style="display:none; text-align:center;">
-    <button class="capture-btn" onclick="capturePhoto()">📸</button>
-    <div style="font-size:15px; color:var(--text-secondary); margin-top:12px;">点击圆形按钮拍照</div>
-  </div>
+  <!-- 相册入口：与拍照按钮同处一个界面，两种方式随时可切换 -->
+  <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+  <button class="btn btn-primary" onclick="pickFromAlbum()">📁 从相册选择照片</button>
 
-  <div style="height:24px;"></div>
-  <button class="btn btn-ghost" onclick="stopCamera(); showPage('home')">← 返回首页</button>
+  <div style="height:10px;"></div>
+  <button class="btn btn-ghost" onclick="leaveCamera()">← 返回首页</button>
 </div>
 
 <!-- ==================== 识别中页 ==================== -->
@@ -3421,6 +3424,10 @@ let isSpeaking = false;
 // 页面切换
 // ============================================================
 function showPage(pageId) {
+  // 离开拍照页一律释放摄像头，避免切页后摄像头仍占用（旧版只在"返回首页"里停流）
+  if (pageId !== 'camera') {
+    try { stopCamera(); } catch (e) { /* 初始化早期的空引用忽略即可 */ }
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + pageId).classList.add('active');
   window.scrollTo(0, 0);
@@ -3513,54 +3520,76 @@ function renderTodayMeds() {
 // ============================================================
 // 摄像头
 // ============================================================
+// 摄像头状态：'idle' | 'starting' | 'ready' | 'unavailable'
+let cameraState = 'idle';
+
 function startCamera() {
   try {
     // 防御：上一次摄像头流未释放时先清理，避免二次进入黑屏/无响应
     if (mediaStream) stopCamera();
     showPage('camera');
-    // 关键修复：先显示相册选择（确保有反应），再后台尝试摄像头
-    showFallback();
 
     const video = document.getElementById('camera-video');
     const container = document.getElementById('camera-container');
     const fallback = document.getElementById('camera-fallback');
     const captureArea = document.getElementById('capture-area');
 
-    // 非安全上下文（file://）或不支持摄像头时，直接用相册
+    // 进入页面先清干净：默认只显示"状态提示 + 相册按钮"，
+    // 等摄像头真的就绪后再把预览和拍照按钮亮出来 ——
+    // 不再先弹相册界面再跳走（那是旧版"先降级再尝试"留下的闪烁）。
+    container.style.display = 'none';
+    captureArea.style.display = 'none';
+    setCameraStatus('starting', '正在启动摄像头…');
+
+    // 非安全上下文（file://）或不支持摄像头时，就地停在相册模式
     if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      cameraState = 'unavailable';
+      setCameraStatus('unavailable', '当前环境不支持调用摄像头<br>请从相册选择药盒照片');
       return;
     }
 
-    // 超时保护：3秒内摄像头没启动成功就保持相册模式
-    const timeoutId = setTimeout(() => {
-      console.warn('摄像头启动超时，使用相册模式');
-    }, 3000);
-
+    cameraState = 'starting';
     navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     }).then(stream => {
-      clearTimeout(timeoutId);
+      // 等待授权期间用户已离开拍照页 → 立刻释放，不让摄像头在后台空转
+      if (!document.getElementById('page-camera').classList.contains('active')) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
       mediaStream = stream;
       video.srcObject = stream;
+      const p = video.play();
+      if (p && p.catch) p.catch(() => {}); // 自动播放被拦时不抛未捕获异常
       container.style.display = 'block';
       fallback.style.display = 'none';
       captureArea.style.display = 'block';
+      cameraState = 'ready';
     }).catch(err => {
-      clearTimeout(timeoutId);
+      cameraState = 'unavailable';
       console.warn('摄像头不可用，使用相册模式:', err.message || err);
-      // 保持相册模式即可，不需要额外操作
+      const name = (err && err.name) || '';
+      const msg = (name === 'NotAllowedError' || name === 'SecurityError')
+        ? '摄像头权限被拒绝<br>可在浏览器设置中开启，或直接选择相册照片'
+        : '摄像头暂不可用<br>请从相册选择药盒照片';
+      setCameraStatus('unavailable', msg);
     });
   } catch (e) {
     console.error('startCamera error:', e);
-    showFallback();
+    cameraState = 'unavailable';
+    setCameraStatus('unavailable', '摄像头暂不可用<br>请从相册选择药盒照片');
   }
 }
 
-function showFallback() {
-  document.getElementById('camera-container').style.display = 'none';
-  document.getElementById('capture-area').style.display = 'none';
-  document.getElementById('camera-fallback').style.display = 'block';
+// 同一界面内的状态提示（启动中 / 不可用）
+function setCameraStatus(state, html) {
+  const fallback = document.getElementById('camera-fallback');
+  const icon = fallback.querySelector('.fallback-icon');
+  const text = document.getElementById('camera-status-text');
+  if (icon) icon.textContent = state === 'starting' ? '⏳' : '📷';
+  if (text) text.innerHTML = html;
+  fallback.style.display = 'block';
 }
 
 function stopCamera() {
@@ -3568,19 +3597,58 @@ function stopCamera() {
     mediaStream.getTracks().forEach(track => track.stop());
     mediaStream = null;
   }
+  const video = document.getElementById('camera-video');
+  if (video) video.srcObject = null;
+  // 复位取景界面：否则下次进入拍照页会先闪一下上一帧的静止画面
+  const container = document.getElementById('camera-container');
+  if (container) container.style.display = 'none';
+  const captureArea = document.getElementById('capture-area');
+  if (captureArea) captureArea.style.display = 'none';
+  cameraState = 'idle';
+}
+
+// 离开拍照页：停流 + 返回首页
+function leaveCamera() {
+  stopCamera();
+  showPage('home');
+}
+
+// 从相册选择：与拍照按钮同处一个界面。
+// 先清空 value，否则连续选择同一张照片不会触发 change。
+function pickFromAlbum() {
+  const input = document.getElementById('file-input');
+  if (!input) return;
+  input.value = '';
+  input.click();
 }
 
 function capturePhoto() {
   const video = document.getElementById('camera-video');
-  const canvas = document.getElementById('camera-canvas');
+  if (!video) return;
+
+  // 摄像头还没吐有效帧（刚授权、画面未就绪）→ 明确提示，而不是静默失败
+  if (!video.videoWidth || !video.videoHeight) {
+    showToast('摄像头画面还没准备好，请稍候再点一次', 'info');
+    return;
+  }
+
+  // 取帧画布：优先用页面内的 #camera-canvas；万一缺失就地创建，
+  // 让取帧不再依赖 HTML 里是否写了这个元素。
+  let canvas = document.getElementById('camera-canvas');
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.id = 'camera-canvas';
+  }
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
   stopCamera();
-  // 意外超大时（复杂场景）走同样的压缩保证
+  // 拍照完成 → 直接进入识别流程，无需再确认
   if (imageData.length > 700 * 1024) {
+    // 意外超大时（复杂场景）走同样的压缩保证
     const img = new Image();
     img.onload = () => startRecognition(compressImageDataUrl(img));
     img.onerror = () => startRecognition(imageData);
@@ -3624,15 +3692,29 @@ function compressImageDataUrl(img, maxSide, maxBytes) {
 }
 
 function handleFileSelect(event) {
-  const file = event.target.files[0];
+  const input = event.target;
+  const file = input.files && input.files[0];
   if (!file) return;
+  // 非图片（部分机型"文件"入口可选中任意文件）直接拦掉，避免进识别流程后白跑
+  if (file.type && !/^image\//.test(file.type)) {
+    showToast('请选择图片文件', 'error');
+    input.value = '';
+    return;
+  }
   // 压缩后再上传：相册原图可能超过5MB，缩放+降质直到满足请求体限制
   const reader = new FileReader();
   reader.onload = (e) => {
+    // 读完再清空，保证"同一张照片连续选择两次"也能再次触发
+    input.value = '';
+    stopCamera(); // 相册通道与拍照通道互斥，顺手释放摄像头
     const img = new Image();
     img.onload = () => startRecognition(compressImageDataUrl(img));
     img.onerror = () => startRecognition(e.target.result); // 解码失败退回原图
     img.src = e.target.result;
+  };
+  reader.onerror = () => {
+    input.value = '';
+    showToast('读取照片失败，请重试', 'error');
   };
   reader.readAsDataURL(file);
 }
