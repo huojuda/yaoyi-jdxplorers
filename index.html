@@ -2064,7 +2064,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.3.2
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.3.3
   </div>
 </div>
 
@@ -4038,7 +4038,35 @@ function renderResult(drug) {
 }
 
 // ============================================================
-// 语音播报（v1.3.2 重写 · 交互改为「点击即暂停/继续」）
+// 语音播报（v1.3.3 · 点击即暂停/继续；§配置的三条纪律见 speak 内部）
+//
+// 版本线（每一版都踩在前一版的坑上，留着当反面教材）：
+//   v1.3.0  修"点了没声音"：自动播报计时器可作废、状态机、点击语义
+//   v1.3.1  ✗ 引入回归：2.5s 启动兜底误判 + 用 getVoices() 判"缺语音包" + 掐断分块
+//   v1.3.2  修误报：删掉"装语音包/换浏览器"措辞、兜底只复位 UI、新增点击即暂停/继续
+//   v1.3.3  修"未能启动"：**只在真的绑定音色时才设 lang** + 换配置退避重试 + 引擎预热
+//
+// 【v1.3.3 修复】点击后提示「语音播报未能启动，请再点一次试试」——
+//   该文案是 ttsErrorMessage 的**默认兜底分支**，说明"普通模式"与"纯文本降级模式"
+//   两次都失败了。两次的共同点，就是我在这两处都写死了 `utter.lang = 'zh-CN'`。
+//
+//   根因：**给引擎指定一个它当前解析不了的 lang，speak() 会立刻以
+//   `language-unavailable` 失败**；而 Android 上 getVoices() 是**异步加载**的
+//   （调用时返回空数组是常态），所以最该省略 lang 的那一刻，恰恰被我们写上了。
+//   v1.3.2 的两级配置都带 lang，于是两级一起失败 → 落到默认兜底文案。
+//   （本地假引擎从不因 lang 失败，所以测试全绿却真机必挂。）
+//
+//   修复（对应 §配置的三条纪律，见 speak 内部注释）：
+//     1) **只在真的绑定了音色时才设 lang，且用音色自带的那个 lang**；
+//     2) 找不到音色时**什么都不指定**，音色与语言全交给系统默认；
+//     3) 语言参数是锦上添花，不是必需条件。
+//   配套：
+//     · 重试改为真正的"换配置退避"（0 用音色 → 1 全默认 → 2 语音列表加载完再用音色），
+//       等待 500ms / 1200ms（原来是 260ms，太短）；
+//     · **重试前不再 cancel()** —— 引擎刚报错，多一次 cancel 只会再造一个未就绪窗口；
+//     · 新增首次交互即静默预热（1 个字、音量 0），把 Android 2~4 秒的冷启动
+//       与语音列表异步加载挪到用户看不到的时候完成；
+//     · 首次发起仍在用户手势内就地同步执行，兼容 iOS 的"必须手势"限制。
 //
 // 【历史修复】"点了没声音"的三处根因（v1.3.0 已修）：
 //  1) 自动播报的计时器必须可作废，否则会在用户自己点播后插进来掐掉声音；
@@ -4078,6 +4106,11 @@ let speakIndex = 0;          // 当前正在念第几块（暂停后从此块恢
 let speakSourceId = '';      // 这次播报是哪个控件发起的（决定哪颗按钮显示状态）
 let nativePauseOk = null;    // null=未实测 / true=原生暂停可用 / false=退回取消式暂停
 let speakArmGuard = null;    // 当前播报链的"块级兜底"重挂函数（原生暂停恢复后需要它）
+
+// 播报失败后换配置重试的等待时长（毫秒），长度即最大重试次数。
+// 逐级退让：0)有音色就用它 → 1)全部交给系统默认 → 2)语音列表可能刚加载完，再用音色。
+// 首档 500ms 是刻意放长的：Android 引擎出错后需要时间清理，250ms 级别会连着重试也一起失败。
+const SPEAK_RETRY_DELAYS = [500, 1200];
 
 // 能力探测：口径与 v1.3.0 保持一致，只要求 speechSynthesis 存在。
 // 不要求 SpeechSynthesisUtterance 必须是函数 —— 多一条判定就多一次
@@ -4301,11 +4334,11 @@ function speakResult() {
 
 // 播报主流程。
 // silent   = true 用于自动播报：失败时不弹提示（用户没主动要求，弹窗只会打扰）。
-// sourceId = 发起控件（'result' / 'ai' / 'dup'），决定哪颗按钮显示状态。
+// sourceId = 发起控件（'result' / 'ai' / 'dup' / 'sos'），决定哪颗按钮显示状态。
 // startIndex = 从第几块开始（暂停后"继续"时用来从当前块重念）。
 function speak(text, silent, sourceId, startIndex) {
   if (!ttsSupported()) {
-    if (!silent) showToast('此设备暂不支持语音播报', 'warning');
+    if (!silent) showToast('此设备的浏览器不支持语音播报', 'warning');
     return;
   }
   if (!text) return;
@@ -4346,12 +4379,12 @@ function speak(text, silent, sourceId, startIndex) {
     if (seq !== speakSeq || dead) return;
     if (speakIndex + 1 >= speakChunks.length) { finishAll(null); return; }
     speakIndex++;
-    playChunk(speakIndex, false, 0);
+    playChunk(speakIndex, 0);
   }
 
   // 块级兜底：开始朗读后 onend 迟迟不来时，先看引擎是否真的还在忙 ——
   // 还在忙就继续等，确认空闲了才推进。这样"引擎不触发 onend"的环境也能
-  // 把后面几块念完，而不是被截断（v1.3.1 正是在这里一刀切断了播放）。
+  // 把后面几块念完，而不是被截断。
   function armChunkGuard() {
     if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
     if (seq !== speakSeq || dead) return;
@@ -4359,53 +4392,65 @@ function speak(text, silent, sourceId, startIndex) {
     speakWatchdog = setTimeout(() => {
       speakWatchdog = null;
       if (seq !== speakSeq || dead) return;
-      if (speakState === 'paused') return;                              // 暂停期间不判断
-      if (isSynthBusy() || isSynthPaused()) { armChunkGuard(); return; } // 还在念 → 继续等
+      if (speakState === 'paused') return;                               // 暂停期间不判断
+      if (isSynthBusy() || isSynthPaused()) { armChunkGuard(); return; }  // 还在念 → 继续等
       advance();
     }, Math.max(5000, len * 420));
   }
   speakArmGuard = armChunkGuard;
 
-  // 朗读第 index 块。plain = true 是"纯文本降级模式"：
-  // 不绑定 voice、不指定特殊 lang，把音色交给系统自选。
-  function playChunk(index, plain, attempt) {
+  // 朗读第 chunkIdx 块。attemptIdx 决定用哪套配置（逐级退让，每级都真正不同）：
+  //   0 → 有音色就用它（连 lang 一起用音色自带的）；没有音色则什么都不指定
+  //   1 → 引擎默认：不设 voice、不设 lang，全部交给系统
+  //   2 → 语音列表可能已异步加载完成，再用音色试一次
+  function playChunk(chunkIdx, attemptIdx) {
     if (seq !== speakSeq || dead) return;
-    if (index >= speakChunks.length) { finishAll(null); return; }
+    if (chunkIdx >= speakChunks.length) { finishAll(null); return; }
 
     let utter;
     try {
-      utter = new SpeechSynthesisUtterance(speakChunks[index]);
+      utter = new SpeechSynthesisUtterance(speakChunks[chunkIdx]);
     } catch (err) {
-      // 极少数环境有 speechSynthesis 却没有构造函数：说清事实即可，
-      // 不劝用户换浏览器（那是 v1.3.1 的误报措辞）。
+      // 极少数环境有 speechSynthesis 却没有构造函数：说清事实即可，不劝用户换浏览器
       lastTtsError = 'ctor:' + ((err && err.message) ? err.message : err);
-      finishAll('此设备暂不支持语音播报');
+      finishAll('此设备的浏览器不支持语音播报');
       return;
     }
 
+    // ============ 配置的三条纪律 ============
+    // 1) **只在真的绑定了音色时才设 lang，且用音色自带的那个 lang。**
+    //    给引擎指定一个它当前解析不了的 lang（例如语音列表还没异步加载完就写上
+    //    'zh-CN'）会让 speak() 立刻以 language-unavailable 失败 ——
+    //    这正是上一版"普通模式与降级模式两次都起不来"的直接原因。
+    // 2) 找不到音色时**什么都不指定**，把音色和语言都交给系统默认。
+    //    宁可听感差一点，也不要因为一个多余的参数而完全不出声。
+    // 3) 语言参数是"锦上添花"，不是"必需条件"。
+    let chosenVoice = null;
+    let chosenLang = '';
     let rate = 0.8;
     let pitch = 1.0;
 
-    if (plain) {
-      utter.lang = 'zh-CN';
-    } else if (currentDialect === 'cantonese') {
-      utter.lang = 'zh-HK';
-      rate = 0.85;
-      const v = pickVoice('cantonese');
-      if (v) utter.voice = v;
-      else pitch = 1.1;                                   // 没有粤语音色时用音调模拟
-    } else if (currentDialect === 'sichuan') {
-      // 四川话：浏览器通常无内置语音，用普通话 + 慢速 + 低音调模拟
-      utter.lang = 'zh-CN';
-      rate = 0.75;
-      pitch = 0.9;
-      const v = pickVoice('mandarin');
-      if (v) utter.voice = v;
+    if (attemptIdx === 1) {
+      rate = 1.0;                                  // 引擎默认档：全部留空
     } else {
-      utter.lang = 'zh-CN';
-      const v = pickVoice('mandarin');
-      if (v) utter.voice = v;
+      const v = pickVoice(currentDialect);
+      if (v) {
+        chosenVoice = v;
+        const vl = String(v.lang || '').trim();
+        if (vl) chosenLang = vl;                   // ← 音色自带的 lang，二者必然一致
+      }
+      if (currentDialect === 'cantonese') {
+        rate = 0.85;
+        if (!v) pitch = 1.1;                       // 没有粤语音色时用音调模拟
+      } else if (currentDialect === 'sichuan') {
+        // 四川话：浏览器通常无内置语音，用慢速 + 低音调模拟
+        rate = 0.75;
+        pitch = 0.9;
+      }
     }
+
+    if (chosenVoice) utter.voice = chosenVoice;
+    if (chosenLang) utter.lang = chosenLang;
     utter.rate = rate;
     utter.pitch = pitch;
     utter.volume = 1.0;
@@ -4432,7 +4477,7 @@ function speak(text, silent, sourceId, startIndex) {
       settled = true;
       const reason = (e && e.error) ? String(e.error) : '';
       lastTtsError = reason;
-      try { console.warn('[TTS] error=' + reason + ' plain=' + plain + ' attempt=' + attempt); } catch (err) {}
+      try { console.warn('[TTS] error=' + reason + ' attempt=' + attemptIdx + ' lang=' + (chosenLang || '(默认)')); } catch (err) {}
 
       // 主动打断：正常含义是"已被新的播报 / 停止取代"，那些路径自己会接管状态。
       // 若引擎自发取消且无人接管，350ms 后确认它确实空闲再复位，避免按钮卡死。
@@ -4445,17 +4490,16 @@ function speak(text, silent, sourceId, startIndex) {
         return;
       }
 
-      // 首次失败 → 换"纯文本模式"重试同一块（共 2 次尝试）。
-      if (!plain) {
-        if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+      // 换一套真正不同的配置再试（SPEAK_RETRY_DELAYS 的长度即最大重试次数）
+      if (attemptIdx < SPEAK_RETRY_DELAYS.length) {
+        const delay = SPEAK_RETRY_DELAYS[attemptIdx];
+        // ⚠️ 重试前【绝不】调用 cancel()：引擎刚报错，没有东西需要取消；
+        //    多一次 cancel 只会再制造一次"停止→朗读"的未就绪窗口，
+        //    让重试也一起失败 —— 上一版就是这样连着失败两次的。
         speakChainTimer = setTimeout(() => {
           if (seq !== speakSeq || dead) return;
-          try { synth.cancel(); } catch (err) { /* 忽略 */ }
-          speakChainTimer = setTimeout(
-            () => playChunk(index, true, attempt + 1),
-            TTS_IS_MOBILE ? 260 : 80
-          );
-        }, 0);
+          playChunk(chunkIdx, attemptIdx + 1);
+        }, delay);
         return;
       }
 
@@ -4466,8 +4510,11 @@ function speak(text, silent, sourceId, startIndex) {
       synth.speak(utter);
     } catch (err) {
       lastTtsError = 'throw:' + ((err && err.message) ? err.message : err);
-      if (!plain) {
-        speakChainTimer = setTimeout(() => playChunk(index, true, attempt + 1), TTS_IS_MOBILE ? 260 : 80);
+      if (attemptIdx < SPEAK_RETRY_DELAYS.length) {
+        speakChainTimer = setTimeout(() => {
+          if (seq !== speakSeq || dead) return;
+          playChunk(chunkIdx, attemptIdx + 1);
+        }, SPEAK_RETRY_DELAYS[attemptIdx]);
         return;
       }
       finishAll(ttsErrorMessage('synthesis-failed'));
@@ -4475,17 +4522,14 @@ function speak(text, silent, sourceId, startIndex) {
     }
 
     // 启动兜底：4 秒内既没有 onstart、引擎也不忙 → 只复位按钮，**不判死**。
-    // v1.3.1 的三处错都改在这里：
-    //   ① 不再看 getVoices() 是否为空去推断"缺语音包"（Android 上它常为空）；
-    //   ② 不再置 dead，因此引擎晚到也能继续播，不会被掐断；
-    //   ③ 措辞里不再出现"装语音包 / 换浏览器"。
+    // 不置 dead（引擎晚到还能继续播）、不看 getVoices()（Android 常态为空）、
+    // 不声称任何病因（"缺语音包"之类措辞已彻底删除）。
     if (!gotAudio) {
       if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
       speakWatchdog = setTimeout(() => {
         speakWatchdog = null;
         if (seq !== speakSeq || dead) return;
         if (speakState === 'paused') return;
-        // 引擎其实在播（只是没回调 onstart）→ 视为正常，接着走块级兜底
         if (gotAudio || isSynthBusy() || isSynthPaused()) { gotAudio = true; armChunkGuard(); return; }
         resetVoiceButton();
         if (!silent) showToast('语音没有播放，请检查手机是否静音或媒体音量过低', 'warning');
@@ -4493,7 +4537,7 @@ function speak(text, silent, sourceId, startIndex) {
     }
   }
 
-  // 空闲时不 cancel()（首次点击本就没有东西要打断）；
+  // 首次点击：空闲时不 cancel()（本就没有东西要打断）；
   // 确需打断时移动端多等一会，避开 Android 引擎"停止→朗读"的未就绪窗口。
   const needsCancel = isSynthBusy() || isSynthPaused();
   if (needsCancel) {
@@ -4501,11 +4545,42 @@ function speak(text, silent, sourceId, startIndex) {
   }
   const startDelay = needsCancel ? (TTS_IS_MOBILE ? 220 : 60) : 0;
 
+  // 就地同步发起（在用户手势内），保证 iOS 等要求"用户手势"的浏览器能放行
   if (startDelay) {
-    speakChainTimer = setTimeout(() => playChunk(speakIndex, false, 0), startDelay);
+    speakChainTimer = setTimeout(() => playChunk(speakIndex, 0), startDelay);
   } else {
-    playChunk(speakIndex, false, 0);
+    playChunk(speakIndex, 0);
   }
+}
+
+// ============================================================
+// 引擎预热
+//
+// Android 首次使用 TTS 时，引擎与语音列表都是**懒加载**的：冷启动可能耗时
+// 2~4 秒，且 getVoices() 在加载完成前返回空数组。
+// 如果等到用户第一次点「语音播报」才去触发这一切，那一次几乎必然失败或久等无反应。
+//
+// 做法：在页面内的**第一次用户交互**（一定早于他点播报按钮）时，用一句
+// 1 个字、音量为 0 的朗读把引擎与语音列表提前唤醒。它不碰任何播放状态，
+// 失败也完全静默，因此不会干扰正常播报。
+// ============================================================
+let ttsWarmedUp = false;
+function warmUpTts() {
+  if (ttsWarmedUp) return;
+  ttsWarmedUp = true;
+  try {
+    if (!ttsSupported()) return;
+    const synth = window.speechSynthesis;
+    synth.getVoices();                                  // 触发语音列表异步加载
+    // 正在播报/已暂停时不要插队（防御性判断，正常不会发生）
+    if (speakState !== 'idle' || isSynthBusy() || isSynthPaused()) return;
+    const u = new SpeechSynthesisUtterance('好');
+    u.volume = 0;                                       // 静音：只为唤醒引擎，不出声
+    u.rate = 1.0;
+    u.pitch = 1.0;
+    u.onerror = () => { /* 预热失败无所谓，保持静默 */ };
+    synth.speak(u);
+  } catch (e) { /* 预热永远不抛给调用方 */ }
 }
 
 // ============================================================
@@ -5106,6 +5181,21 @@ if ('speechSynthesis' in window) {
     window.speechSynthesis.getVoices();
   };
 }
+
+// 引擎预热：页面内的第一次用户交互就把 TTS 引擎与语音列表唤醒。
+// 到用户真正去点「语音播报」时，引擎通常已经就绪、getVoices() 也有内容了 ——
+// 这既避免了 Android 首次冷启动 2~4 秒的久等，也避免了"语音列表为空时
+// 被我们写上一个解析不了的 lang"导致的启动失败。
+// 只挂一次、只跑一次；失败静默，不影响任何功能。
+function armTtsWarmUp() {
+  const fire = () => { try { warmUpTts(); } catch (e) { /* 永不影响调用方 */ } };
+  try {
+    window.addEventListener('pointerdown', fire, { once: true, passive: true });
+    window.addEventListener('touchstart', fire, { once: true, passive: true });
+    window.addEventListener('keydown', fire, { once: true });
+  } catch (e) { /* 老浏览器不支持 options 对象 → 退化为不预热 */ }
+}
+armTtsWarmUp();
 
 // ============================================================
 // 用药记录（localStorage 持久化）
