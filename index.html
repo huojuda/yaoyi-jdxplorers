@@ -2162,7 +2162,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.4.0
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.4.1
   </div>
 </div>
 
@@ -5175,9 +5175,9 @@ function fillDemoDataIfNeeded() {
   }
   saveRecords(newRecords);
   // 标记今天饮酒（展示酒精冲突）
-  const alcoholFlags = JSON.parse(localStorage.getItem(ALCOHOL_KEY) || '{}');
+  const alcoholFlags = JSON.parse(localStorage.getItem(scopedKey(ALCOHOL_KEY)) || '{}');
   alcoholFlags[getTodayStr()] = true;
-  localStorage.setItem(ALCOHOL_KEY, JSON.stringify(alcoholFlags));
+  localStorage.setItem(scopedKey(ALCOHOL_KEY), JSON.stringify(alcoholFlags));
   showToast('已加载演示数据（含6种药品+饮酒标记）', 'success');
 }
 
@@ -5333,11 +5333,75 @@ armTtsWarmUp();
 // ============================================================
 // 用药记录（localStorage 持久化）
 // ============================================================
+// ============================================================
+// 本地数据的「用户命名空间」（v1.4.1）
+//
+// 修复的问题：服药记录原来存在一个**全局唯一键**里，与用户无关。
+// 同一台设备上，甲登出后乙登录，乙的 loadRecords() 读的还是同一个键 ——
+// 直接看到甲的服药历史。这是实打实的数据泄漏。
+//
+// 修法一（根因）：所有用户数据键都带命名空间后缀
+//   登录用户 → base::u_<userId>
+//   未登录   → base::guest
+// 于是"换用户"天然换键，隔离不依赖"记得清空"。
+//
+// 修法二（登出）：登出/注销/会话失效时调用 clearLocalUserData()
+// 把本设备上的用户数据整体删除，满足"登出后彻底清除"。
+// ============================================================
+function currentDataScope() {
+  try {
+    const u = getCurrentUser();
+    const id = u && (u.userId || u.phone || u.displayName);
+    return id ? ('u_' + String(id)) : 'guest';
+  } catch (e) { return 'guest'; }
+}
+
+function scopedKey(base) { return base + '::' + currentDataScope(); }
+
+// 用户数据键的识别规则（登出时据此彻底清除）
+const USER_DATA_BASE_KEYS = ['yaoyi_medication_records', 'yaoyi_alcohol_flags'];
+const USER_DATA_PREFIXES = ['comboAi:', 'yaoyi_local_alert'];
+
+function isUserDataKey(k) {
+  if (!k) return false;
+  if (USER_DATA_PREFIXES.some(p => k.indexOf(p) === 0)) return true;
+  // 同时命中"带命名空间的新键"与"历史遗留的裸键"
+  return USER_DATA_BASE_KEYS.some(b => k === b || k.indexOf(b + '::') === 0);
+}
+
+// 清除本设备上的**全部**用户服药数据（不分命名空间）。
+// 取舍：登出意味着"这台设备不再保留任何服药数据"，所以宁可连其它命名空间
+// （例如历史遗留的 guest 数据）一起清掉，也不冒"残留 + 泄漏"的风险。
+function clearLocalUserData() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+    keys.forEach(k => { if (isUserDataKey(k)) { try { localStorage.removeItem(k); } catch (e) {} } });
+  } catch (e) { console.error('清除本地用户数据失败:', e); }
+  // 内存缓存也要清：否则同一会话内切换用户会命中上一个用户的分析结果
+  try { comboAiCache.clear(); } catch (e) {}
+}
+
+// 旧版把用户数据写在"裸键"里（无命名空间）。首次读取时一次性迁移到
+// 当前命名空间并删掉裸键 —— 幂等，且不会让老用户丢数据。
+function migrateLegacyUserData() {
+  [STORAGE_KEY, ALCOHOL_KEY].forEach(base => {
+    try {
+      const bare = localStorage.getItem(base);
+      if (!bare) return;
+      const target = scopedKey(base);
+      if (!localStorage.getItem(target)) localStorage.setItem(target, bare);
+      localStorage.removeItem(base);
+    } catch (e) {}
+  });
+}
+
 const STORAGE_KEY = 'yaoyi_medication_records';
 
 function loadRecords() {
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
+    migrateLegacyUserData();                       // 老数据先迁到当前命名空间
+    const data = localStorage.getItem(scopedKey(STORAGE_KEY));
     const records = data ? JSON.parse(data) : [];
     if (!Array.isArray(records)) return [];
     // 兼容早期数据：那时的记录没有 id。这里按字段派生一个**稳定 id** 并回写，
@@ -5356,7 +5420,7 @@ function loadRecords() {
 
 function saveRecords(records) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    localStorage.setItem(scopedKey(STORAGE_KEY), JSON.stringify(records));
   } catch (e) {
     console.error('保存记录失败:', e);
   }
@@ -5684,7 +5748,8 @@ function renderInteractionCards(container, rules) {
 // 酒精标记读写（按天）
 function getAlcoholFlags() {
   try {
-    const data = localStorage.getItem(ALCOHOL_KEY);
+    migrateLegacyUserData();
+    const data = localStorage.getItem(scopedKey(ALCOHOL_KEY));
     return data ? JSON.parse(data) : {};
   } catch (e) { return {}; }
 }
@@ -5699,7 +5764,7 @@ function toggleAlcohol() {
   } else {
     flags[today] = true;
   }
-  try { localStorage.setItem(ALCOHOL_KEY, JSON.stringify(flags)); } catch (e) {}
+  try { localStorage.setItem(scopedKey(ALCOHOL_KEY), JSON.stringify(flags)); } catch (e) {}
   updateAlcoholBtn();
   renderHistoryInteractions();
 }
@@ -5960,7 +6025,8 @@ async function fetchComboAiAnalysis(names, rules) {
   const block = document.getElementById('combo-ai-block');
   const content = document.getElementById('combo-ai-content');
   if (!block || !content) return;
-  const cacheKey = 'comboAi:' + names.slice().sort().join('|');
+  // 缓存键带上用户命名空间：不同用户的联合用药分析不能互相命中
+  const cacheKey = 'comboAi:' + currentDataScope() + ':' + names.slice().sort().join('|');
   const CACHE_TTL = 7 * 24 * 3600 * 1000;
 
   // 1. 内存缓存
@@ -6499,14 +6565,57 @@ function getCurrentUser() {
   } catch (e) { return null; }
 }
 function setAuthSession(token, user) {
+  const before = currentDataScope();
   localStorage.setItem(AUTH_TOKEN_KEY, token);
   localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
   renderAccountBtn();
+  // 命名空间变了（换用户登录）→ 界面必须按新命名空间重刷，否则显示的是上一个用户的数据
+  if (currentDataScope() !== before) refreshAfterDataScopeChange();
 }
-function clearAuthSession() {
+// 切换/结束用户命名空间后，把界面上的数据全部重刷一遍。
+// 数据清了但画面没清，同样等于把上一个用户的内容留在屏幕上。
+function refreshAfterDataScopeChange() {
+  const safe = fn => { try { fn(); } catch (e) { /* 初始化早期忽略 */ } };
+  safe(renderTodayMeds);
+  safe(renderHistory);
+  safe(renderHistoryInteractions);
+  safe(renderComboAnalysis);
+  safe(renderAdherenceScore);
+  safe(renderRepurchaseReminder);
+  safe(updateAlcoholBtn);
+  safe(renderAccountBtn);
+}
+
+// 清空会话相关的**内存**状态：只清存储不清内存，界面仍会显示上一个用户的内容
+function purgeSessionState() {
+  try { stopGuardianPolling(); } catch (e) {}
+  try {
+    remoteEvents = [];
+    lastEventTs = 0;
+    currentAlertTs = 0;
+    currentAlertPatientId = null;
+    guardianFirstPollDone = false;
+  } catch (e) {}
+  try { currentDrug = null; currentImageData = null; } catch (e) {}
+  try { stopSpeaking(); } catch (e) {}
+  try { historySelectMode = false; historySelectedKeys.clear(); } catch (e) {}
+  try { comboAiCache.clear(); } catch (e) {}
+  try { aiAnswerText = ''; duplicateAiText = ''; } catch (e) {}
+}
+
+// 结束会话。
+// ⚠️ 默认就执行"彻底清除本机用户数据" —— 安全默认：即使某处调用忘了传参，
+//    也不会把上一个用户的服药记录留在设备上。
+function clearAuthSession(opts) {
+  const purge = !opts || opts.purge !== false;
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
+  if (purge) {
+    clearLocalUserData();     // 存储层：服药记录 / 酒精标记 / AI 分析缓存
+    purgeSessionState();      // 内存层：药品、播报、选择态、事件缓存
+  }
   renderAccountBtn();
+  refreshAfterDataScopeChange();  // 界面层：重刷所有读数视图
 }
 
 // 启动时校验会话（过期则清除）
@@ -6514,8 +6623,8 @@ async function initAuth() {
   if (!getAuthToken()) { renderAccountBtn(); return; }
   const r = await apiPost('/api/auth', { action: 'me' });
   if (r.error || !r.user) {
-    clearAuthSession();
-    if (r.error && r.error.includes('过期')) showToast('登录已过期，请重新登录', 'info');
+    clearAuthSession({ purge: true });
+    if (r.error && r.error.includes('过期')) showToast('登录已过期，本机服药记录已清除，请重新登录', 'info');
   } else {
     setAuthSession(getAuthToken(), r.user);
   }
@@ -6533,14 +6642,13 @@ function onPairTap() {
 function onAccountTap() {
   const user = getCurrentUser();
   if (user) {
-    if (confirm(user.displayName + '（' + (user.role === 'caregiver' ? '家人' : '患者') + '）\n确定退出登录吗？')) {
+    if (confirm(user.displayName + '（' + (user.role === 'caregiver' ? '家人' : '患者') + '）'
+        + '\n确定退出登录吗？\n\n为保护隐私，本机保存的服药记录、饮酒标记等数据会一并清除。')) {
       apiPost('/api/auth', { action: 'logout' });
-      clearAuthSession();
-      stopGuardianPolling(); // 停止家属端轮询
-      remoteEvents = [];
-      guardianFirstPollDone = false;
-      lastEventTs = 0;
-      showToast('已退出登录', 'info');
+      // clearAuthSession 会：清凭据 → 清本机用户数据 → 重置内存状态 → 重刷界面
+      clearAuthSession({ purge: true });
+      showPage('home');   // 回到首页，避免停留在记录页面对残留内容
+      showToast('已退出登录，本机服药记录已清除', 'info');
     }
   } else {
     switchAuthMode('login');
