@@ -2064,7 +2064,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.3.0
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.3.1
   </div>
 </div>
 
@@ -3422,6 +3422,9 @@ let isSpeaking = false;
 let autoSpeakTimer = null;   // 自动播报的计时器 id：用户一旦主动点击就作废它
 let speakWatchdog = null;    // 播报启动兜底检测：没真出声时要给用户明确反馈
 let speakSeq = 0;            // 播报序号：忽略"已被取代"的播报回调
+let speakChainTimer = null;  // 分块朗读的串场计时器（块与块之间/重试等待）
+let speakResumeTimer = null; // 播放期间的 resume 心跳：对付部分引擎的假暂停
+let lastTtsError = null;     // 最近一次 TTS 原始错误码（仅用于控制台排查，不展示给用户）
 
 // ============================================================
 // 页面切换
@@ -3952,22 +3955,119 @@ function renderResult(drug) {
   autoSpeakTimer = setTimeout(() => {
     autoSpeakTimer = null;
     if (isSpeaking) return;              // 用户已经自己触发了播报 → 不再插话
-    if (autoText) speak(autoText); else speakResult();
+    if (autoText) speak(autoText, true); else if (currentDrug) speak(buildSpeakText(currentDrug), true);
   }, 800);
 }
 
 // ============================================================
-// 语音播报
+// 语音播报（v1.3.1 重写）
 //
-// 设计要点（对应"点了没声音"的三处根因）：
+// 【历史修复】"点了没声音"的三处根因：
 //  1) 自动播报的计时器必须可作废 —— 否则它会在用户自己点播后被触发，
 //     走"正在播报"分支把用户的声音掐掉；
 //  2) 用户点击 = 从头重播，**永远要出声** —— 旧版把"正在播报时的点击"
 //     当成"停止"，导致用户点了却听不到任何新声音；
 //  3) 状态不能只靠 onstart/onend 驱动 —— cancel() 不会触发 onend，
 //     旧版的 isSpeaking 一旦被外部打断就永久卡在 true，此后点击全部静默失效。
+//
+// 【v1.3.1 修复】手机端点击播报弹出提示「synthesis-failed」：
+//   该字符串是 SpeechSynthesisErrorEvent.error 的**原始错误码**，
+//   被 onerror 直接拼进 toast 透传给了用户 —— 即"把系统内部错误码当提示语"。
+//   它被抛出的真实原因三条，且都只在移动端（Android Chrome / WebView）触发，
+//   桌面端复现不出来：
+//     A) 发起播报前无条件 cancel()：Android 上 TTS 引擎"停止 → 朗读"的状态
+//        切换远比桌面端慢，cancel() 后仅隔 60ms 就 speak() 会命中引擎未就绪，
+//        直接回 synthesis-failed；
+//     B) 单次朗读文本过长（结果页文案约 150~200 字）：移动端引擎不会像桌面
+//        Chrome 那样自动分句，长文本易合成失败；桌面 Chrome 另有"约 15 秒后
+//        自动静音"的已知缺陷，分块后一并规避；
+//     C) 绑定了 voice 对象或指定 zh-HK 等 lang，而系统缺少对应语音包，
+//        引擎立刻回 synthesis-failed。
+//
+//   对应修复：
+//    1) 不再透传原始错误码 —— 按 error 类型映射为可操作的中文提示，
+//       原始码只写进控制台；
+//    2) 空闲时不调 cancel()（首次点击本就没有东西需要打断）；确需打断时
+//       移动端把等待放宽到 220ms；
+//    3) 长文本按标点切块（≤80 字）顺序朗读，块间由 onend 串联；
+//    4) synthesis-failed 自动重试：降级为"纯文本模式"（不绑定 voice、
+//       不指定特殊 lang、回到默认语速音调），最多 2 次；
+//    5) 开始朗读后每 5 秒 resume() 一次，对付部分引擎的假暂停。
 // ============================================================
 let currentDialect = 'mandarin';
+
+// 能力探测：部分 WebView 有 speechSynthesis 却没有 SpeechSynthesisUtterance 构造函数。
+// 必须【调用时】求值，不能在校本解析时缓存 —— 能力可能后置注入，缓存会得到过期结论。
+function ttsSupported() {
+  try {
+    return (typeof window !== 'undefined')
+      && ('speechSynthesis' in window)
+      && (typeof window.SpeechSynthesisUtterance === 'function')
+      && !!window.speechSynthesis;
+  } catch (e) { return false; }
+}
+const TTS_IS_MOBILE = /Android|iPhone|iPad|iPod|HarmonyOS|Mobile|MicroMessenger/i.test(
+  (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '');
+
+// 长文本按标点切块：移动端引擎不自动分句，长文本是 synthesis-failed 的常见诱因。
+// 切块同时规避 Chrome 桌面端"约 15 秒后自动静音"的已知缺陷。
+function splitForSpeech(text, maxLen) {
+  maxLen = maxLen || 80;
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return [];
+  if (raw.length <= maxLen) return [raw];
+  const chunks = [];
+  let buf = '';
+  const flush = () => { const s = buf.trim(); if (s) chunks.push(s); buf = ''; };
+  // 按标点切成最小语义段，含标点以便还原停顿
+  const pieces = raw.split(/([，。！？；：、,.!?;:])/);
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = pieces[i];
+    if (!piece) continue;
+    if (buf.length + piece.length > maxLen && buf.length) flush();
+    buf += piece;
+    // 句末标点且已攒够一半 → 收块，保持"整句"自然停顿
+    if (/^[。！？!?]$/.test(piece) && buf.length >= maxLen * 0.5) flush();
+  }
+  flush();
+  return chunks.length ? chunks : [raw];
+}
+
+// 把引擎错误码翻译成用户能照着做的话（绝不把原始码展示给用户）
+function ttsErrorMessage(reason) {
+  switch (reason) {
+    case 'not-allowed':
+      return '语音播报被浏览器拦截，请再点一次「语音播报」';
+    case 'synthesis-failed':
+      return '手机语音引擎未能合成声音，请到系统「设置 → 辅助功能 → 文字转语音」确认已安装中文语音包，或改用系统浏览器打开本页';
+    case 'voice-unavailable':
+    case 'language-unavailable':
+      return '手机缺少中文语音包，请到系统「文字转语音」设置中下载后重试';
+    case 'audio-busy':
+      return '音频通道被其他应用占用，请先关闭音乐或通话后重试';
+    case 'audio-hardware':
+      return '音频设备不可用，请检查手机是否处于静音或媒体音量为 0';
+    case 'network':
+      return '语音合成需要联网，请检查网络后重试';
+    case 'text-too-long':
+      return '播报内容过长，请重新识别药品后再试';
+    case 'invalid-argument':
+      return '播报内容异常，请重新识别药品后再试';
+    default:
+      return '语音播报失败，请检查手机媒体音量后重试';
+  }
+}
+
+// 诊断入口：手机上看不到控制台时，可在页面里执行 __yaoyiTTS() 查看真实原因
+window.__yaoyiTTS = function () {
+  return {
+    supported: ttsSupported(),
+    mobile: TTS_IS_MOBILE,
+    voices: getVoicesSafe().length,
+    lastError: lastTtsError,
+    ua: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : ''
+  };
+};
 
 function setDialect(dialect) {
   currentDialect = dialect;
@@ -4018,10 +4118,30 @@ function resetVoiceButton() {
 // 停止播报：作废自动播报计时器 + 让在途回调失效 + 复位按钮
 function stopSpeaking() {
   if (autoSpeakTimer) { clearTimeout(autoSpeakTimer); autoSpeakTimer = null; }
-  if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+  clearSpeakTimers();
   speakSeq++;
-  try { window.speechSynthesis.cancel(); } catch (e) { /* 无 TTS 环境忽略 */ }
+  try {
+    const s = window.speechSynthesis;
+    if (s && (s.speaking || s.pending)) s.cancel();
+  } catch (e) { /* 无 TTS 环境忽略 */ }
   resetVoiceButton();
+}
+
+// 清掉播报链路上的所有计时器（分块串场 / resume 心跳 / 启动兜底）
+function clearSpeakTimers() {
+  if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+  if (speakChainTimer) { clearTimeout(speakChainTimer); speakChainTimer = null; }
+  if (speakResumeTimer) { clearInterval(speakResumeTimer); speakResumeTimer = null; }
+}
+
+// 结果页播放文案（点击播报与自动播报共用）
+function buildSpeakText(drug) {
+  return '这是' + drug.name + '，' + drug.plain_class + '。'
+    + '一天吃' + drug.frequency + '。'
+    + drug.timing + '吃。'
+    + drug.meal_relation + '。'
+    + '需要注意：' + drug.contraindication + '。'
+    + drug.elderly_explanation;
 }
 
 // 用户点击「语音播报」：总是从头重播，保证"点了就有声音"
@@ -4030,52 +4150,27 @@ function speakResult() {
     showToast('暂无可播报的药品信息', 'warning');
     return;
   }
-  const drug = currentDrug;
-  const text = '这是' + drug.name + '，' + drug.plain_class + '。'
-    + '一天吃' + drug.frequency + '。'
-    + drug.timing + '吃。'
-    + drug.meal_relation + '。'
-    + '需要注意：' + drug.contraindication + '。'
-    + drug.elderly_explanation;
-
-  speak(text);
+  speak(buildSpeakText(currentDrug), false);
 }
 
-function speak(text) {
-  if (!('speechSynthesis' in window)) {
-    showToast('当前浏览器不支持语音播报', 'warning');
+// 播报主流程。
+// silent = true 用于自动播报：失败时不弹提示（用户没主动要求，弹窗只会打扰）。
+function speak(text, silent) {
+  if (!ttsSupported()) {
+    if (!silent) showToast('当前浏览器不支持语音播报，请用系统浏览器打开本页', 'warning');
     return;
   }
   if (!text) return;
 
   // 用户主动播报 → 立刻作废尚未触发的自动播报，避免两者抢话筒
   if (autoSpeakTimer) { clearTimeout(autoSpeakTimer); autoSpeakTimer = null; }
-  if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+  clearSpeakTimers();
 
   const seq = ++speakSeq;
   const synth = window.speechSynthesis;
-  const utterance = new SpeechSynthesisUtterance(text);
 
-  // 方言参数
-  let rate = 0.8;
-  let pitch = 1.0;
-  if (currentDialect === 'cantonese') {
-    utterance.lang = 'zh-HK';
-    rate = 0.85;
-  } else if (currentDialect === 'sichuan') {
-    // 四川话：浏览器通常无内置语音，用普通话 + 慢速 + 低音调模拟
-    utterance.lang = 'zh-CN';
-    rate = 0.75;
-    pitch = 0.9;
-  } else {
-    utterance.lang = 'zh-CN';
-  }
-  const voice = pickVoice(currentDialect);
-  if (voice) utterance.voice = voice;
-  else if (currentDialect === 'cantonese') pitch = 1.1;   // 没有粤语音色时用音调模拟
-  utterance.rate = rate;
-  utterance.pitch = pitch;
-  utterance.volume = 1.0;
+  const chunks = splitForSpeech(text, 80);
+  if (!chunks.length) return;
 
   // 立即置为"播报中"，不等 onstart —— 否则存在"已发起但状态还是未播报"的错位窗口
   isSpeaking = true;
@@ -4084,64 +4179,166 @@ function speak(text) {
     if (btn) { btn.classList.add('speaking'); btn.innerHTML = '🔄 正在播报 · 点击重播'; }
   }
 
-  let started = false;
-  let ended = false;
-  const clearWatchdog = () => {
-    if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
-  };
-  utterance.onstart = () => {
-    if (seq !== speakSeq) return;                       // 已被更新的播报取代
-    started = true;
-    clearWatchdog();
-    // 完成兜底：万一 onend 没触发（被系统打断、切后台），状态也要能自己复位
-    const maxMs = Math.max(6000, text.length * 400);
-    speakWatchdog = setTimeout(() => {
-      speakWatchdog = null;
-      if (seq !== speakSeq || ended) return;
-      resetVoiceButton();
-    }, maxMs);
-  };
-  utterance.onend = () => {
-    if (seq !== speakSeq) return;
-    ended = true;
-    clearWatchdog();
-    resetVoiceButton();
-  };
-  utterance.onerror = (e) => {
-    if (seq !== speakSeq) return;
-    ended = true;
-    clearWatchdog();
-    resetVoiceButton();
-    const reason = (e && e.error) ? e.error : '未知原因';
-    // 'interrupted'/'canceled' 是主动打断，不算故障
-    if (reason !== 'interrupted' && reason !== 'canceled') {
-      showToast('语音播报失败：' + reason, 'warning');
-    }
-  };
+  let gotAudio = false;    // 是否至少有一块真的开始出声
+  let finished = false;    // 整条链路是否已收尾（防止重复收尾）
 
-  // Chrome 已知问题：cancel() 与 speak() 在同一 tick 调用会静默无声，
-  // 故先 cancel，下一帧再 speak。
-  try { synth.cancel(); } catch (e) { /* 忽略 */ }
-  setTimeout(() => {
-    if (seq !== speakSeq) return;                       // 期间已被新的播报/停止取代
-    try {
-      synth.speak(utterance);
-    } catch (e) {
-      resetVoiceButton();
-      showToast('语音播报启动失败', 'warning');
-      return;
+  function finishAll(errMsg) {
+    if (finished) return;
+    finished = true;
+    if (seq !== speakSeq) return;
+    clearSpeakTimers();
+    resetVoiceButton();
+    if (errMsg && !silent) showToast(errMsg, 'warning');
+  }
+
+  // 朗读第 index 块。plain = true 表示"纯文本降级模式"：
+  // 不绑定 voice、不指定特殊 lang，把音色交给系统自选（移动端最有效的兜底）。
+  function playChunk(index, plain, attempt) {
+    if (seq !== speakSeq || finished) return;
+    if (index >= chunks.length) { finishAll(null); return; }
+
+    const utter = new SpeechSynthesisUtterance(chunks[index]);
+    let rate = 0.8;
+    let pitch = 1.0;
+
+    if (plain) {
+      utter.lang = 'zh-CN';
+    } else if (currentDialect === 'cantonese') {
+      utter.lang = 'zh-HK';
+      rate = 0.85;
+      const v = pickVoice('cantonese');
+      if (v) utter.voice = v;
+      else pitch = 1.1;                                   // 没有粤语音色时用音调模拟
+    } else if (currentDialect === 'sichuan') {
+      // 四川话：浏览器通常无内置语音，用普通话 + 慢速 + 低音调模拟
+      utter.lang = 'zh-CN';
+      rate = 0.75;
+      pitch = 0.9;
+      const v = pickVoice('mandarin');
+      if (v) utter.voice = v;
+    } else {
+      utter.lang = 'zh-CN';
+      const v = pickVoice('mandarin');
+      if (v) utter.voice = v;
     }
-    // 兜底：1.5s 内始终没有真正开始 → 说明没出声，给用户明确原因而不是静默
-    speakWatchdog = setTimeout(() => {
-      speakWatchdog = null;
-      if (seq !== speakSeq || started) return;
-      resetVoiceButton();
-      const hasVoice = getVoicesSafe().length > 0;
-      showToast(hasVoice
-        ? '语音没有播放，请检查手机是否静音或媒体音量过低'
-        : '系统未提供语音包，暂时无法播报', 'warning');
-    }, 1500);
-  }, 60);
+    utter.rate = rate;
+    utter.pitch = pitch;
+    utter.volume = 1.0;
+
+    let settled = false;
+
+    utter.onstart = () => {
+      if (seq !== speakSeq || settled) return;
+      gotAudio = true;
+      // 块级完成兜底：该块已开始朗读，但迟迟不触发 onend（被系统挂起、
+      // 切后台、引擎假死）时，状态必须能自己复位，否则按钮永久卡在"正在播报"。
+      // 每次 onstart 都会清掉上一块的兜底，故不会误伤。
+      if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+      const maxMs = Math.max(6000, chunks[index].length * 400);
+      speakWatchdog = setTimeout(() => {
+        speakWatchdog = null;
+        if (seq !== speakSeq || settled || finished) return;
+        finishAll(null);
+      }, maxMs);
+      // resume 心跳：部分移动端引擎会在无操作时进入假暂停
+      if (!speakResumeTimer) {
+        speakResumeTimer = setInterval(() => {
+          if (seq !== speakSeq || finished) return;
+          try { synth.resume(); } catch (e) { /* 忽略 */ }
+        }, 5000);
+      }
+    };
+
+    utter.onend = () => {
+      if (seq !== speakSeq || settled) return;
+      settled = true;
+      if (finished) return;
+      // 块间留一点停顿，听感更自然；下一块始终回到常规模式
+      speakChainTimer = setTimeout(() => playChunk(index + 1, false, 0), 140);
+    };
+
+    utter.onerror = (e) => {
+      if (seq !== speakSeq || settled) return;
+      settled = true;
+      const reason = (e && e.error) ? String(e.error) : '';
+      lastTtsError = reason;
+      try { console.warn('[TTS] error=' + reason + ' plain=' + plain + ' attempt=' + attempt); } catch (err) {}
+
+      // 'interrupted' / 'canceled' 是主动打断，不算故障
+      if (reason === 'interrupted' || reason === 'canceled') {
+        // 正常情况下它意味着"已被新的播报/停止取代"，而那些路径自己会接管状态。
+        // 但引擎也可能自发取消且无人接管 —— 那样 isSpeaking 会永久卡住，
+        // 此后点击全部静默失效，故加一道 350ms 兜底复位。
+        setTimeout(() => {
+          if (seq !== speakSeq || finished) return;
+          try {
+            if (!synth.speaking && !synth.pending) {
+              finished = true;
+              clearSpeakTimers();
+              resetVoiceButton();
+            }
+          } catch (err) { /* 忽略 */ }
+        }, 350);
+        return;
+      }
+      if (finished) return;
+
+      // 关键兜底：失败后改用"纯文本模式"重试同一块（共 2 次尝试）。
+      // 移动端 synthesis-failed 绝大多数是"引擎未就绪 / 音色不可用"，
+      // 换个干净的 utterance 再喂一次即可恢复。
+      if (!plain) {
+        if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+        speakChainTimer = setTimeout(() => {
+          if (seq !== speakSeq || finished) return;
+          try { synth.cancel(); } catch (err) {}
+          speakChainTimer = setTimeout(
+            () => playChunk(index, true, attempt + 1),
+            TTS_IS_MOBILE ? 260 : 80
+          );
+        }, 0);
+        return;
+      }
+
+      finishAll(ttsErrorMessage(reason));
+    };
+
+    try {
+      synth.speak(utter);
+      // 启动兜底：只要还没听到任何声音，就在 2.5s 后检查是否真的开始了。
+      // 覆盖首次尝试与"纯文本模式"重试两条路径，避免重试后无人收尾。
+      if (!gotAudio) {
+        if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+        speakWatchdog = setTimeout(() => {
+          speakWatchdog = null;
+          if (seq !== speakSeq || gotAudio || finished) return;
+          finishAll(getVoicesSafe().length
+            ? '语音没有播放，请检查手机是否静音或媒体音量过低'
+            : '系统未提供中文语音包，暂时无法播报，请到系统「文字转语音」设置中下载');
+        }, 2500);
+      }
+    } catch (err) {
+      lastTtsError = 'throw:' + (err && err.message ? err.message : err);
+      if (!plain) {
+        speakChainTimer = setTimeout(() => playChunk(index, true, attempt + 1), TTS_IS_MOBILE ? 260 : 80);
+        return;
+      }
+      finishAll('语音播报启动失败，请检查手机媒体音量后重试');
+    }
+  }
+
+  // 启动前不再无条件 cancel()：空闲时 cancel 反而会把 Android 引擎推入
+  // "未就绪"状态 —— 这正是首次点击就回 synthesis-failed 的常见触发源。
+  const needsCancel = !!(synth.speaking || synth.pending);
+  if (needsCancel) {
+    try { synth.cancel(); } catch (e) { /* 忽略 */ }
+  }
+  const startDelay = needsCancel ? (TTS_IS_MOBILE ? 220 : 60) : 0;
+
+  if (startDelay) {
+    speakChainTimer = setTimeout(() => playChunk(0, false, 0), startDelay);
+  } else {
+    playChunk(0, false, 0);
+  }
 }
 
 // ===== AI 用药风险预测 =====
