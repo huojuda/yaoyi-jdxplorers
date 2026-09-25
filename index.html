@@ -864,6 +864,104 @@ body {
   flex-shrink: 0;
 }
 
+/* ===== 服药历史：删除 / 批量管理（v1.4.0） ===== */
+.history-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.history-toolbar .btn {
+  flex: 1;
+  padding: 14px;
+  font-size: 16px;
+  margin-bottom: 0;
+}
+
+/* 批量管理时的操作条：全选 / 删除选中 / 取消 */
+.history-selbar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+.history-selbar.show { display: flex; }
+.history-selbar .hs-count {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+.history-selbar .btn {
+  width: auto;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin-bottom: 0;
+}
+
+.history-item .h-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+/* 删除按钮：保留 ≥40px 的点击区，适老化 */
+.history-item .h-del {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  background: var(--danger-light);
+  color: var(--danger);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+.history-item .h-del:active { transform: scale(0.92); }
+
+/* 选择模式：图标位换成圆形勾选框 */
+.history-item .h-check {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 2px solid #CBD5E1;
+  border-radius: 50%;
+  background: #fff;
+  color: transparent;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.history-item.selected {
+  outline: 2px solid var(--primary);
+  background: var(--primary-light);
+}
+.history-item.selected .h-check {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.history-confirm-body {
+  padding: 18px 22px 6px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.history-confirm-body b { color: var(--danger); }
+.history-confirm-actions { padding: 16px 22px 22px; }
+
 /* ===== Toast ===== */
 .toast {
   position: fixed;
@@ -2064,7 +2162,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.3.3
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.4.0
   </div>
 </div>
 
@@ -2379,6 +2477,21 @@ body {
 <div id="page-history" class="page">
   <div class="section-title" style="margin-top:0;">📋 用药记录</div>
 
+  <!-- 服药历史管理：批量管理 / 清空全部 -->
+  <div class="history-toolbar" id="history-toolbar" style="display:none;">
+    <button class="btn btn-secondary" id="history-manage-btn" onclick="toggleHistorySelectMode()">批量管理</button>
+    <button class="btn btn-ghost" onclick="requestClearAllRecords()" style="color:var(--danger);">🗑 清空全部</button>
+  </div>
+
+  <!-- 批量管理操作条 -->
+  <div class="history-selbar" id="history-selbar">
+    <span class="hs-count" id="hs-count">已选 0 条</span>
+    <button class="btn btn-ghost" id="hs-all" onclick="toggleSelectAllRecords()">全选</button>
+    <button class="btn btn-danger" onclick="requestDeleteSelected()">删除选中</button>
+    <button class="btn btn-ghost" onclick="exitHistorySelectMode()">取消</button>
+  </div>
+
+
   <!-- 今天饮酒标记 -->
   <div class="alcohol-toggle" id="alcohol-toggle">
     <span class="at-label">🍷 今天是否饮酒？</span>
@@ -2559,6 +2672,19 @@ body {
       <button class="btn btn-ghost" onclick="closeReport()">关闭</button>
     </div>
     <div class="report-hint">长按图片可保存到相册，分享到家庭群</div>
+  </div>
+</div>
+
+<!-- ==================== 用药记录删除：二次确认弹窗 ==================== -->
+<div class="alert-overlay" id="history-confirm-overlay" style="display:none;">
+  <div class="alert-popup" style="border-color: var(--danger);">
+    <div class="ap-icon" id="hc-icon" style="font-size:40px; margin-top:20px;">🗑️</div>
+    <div class="alert-title" id="hc-title" style="font-size:20px; font-weight:700; padding:0 22px;">确认删除？</div>
+    <div class="history-confirm-body" id="hc-desc"></div>
+    <div class="history-confirm-actions">
+      <button class="btn btn-danger" id="hc-ok" onclick="confirmHistoryAction()">确认删除</button>
+      <button class="btn btn-ghost" onclick="closeHistoryConfirm()">取消</button>
+    </div>
   </div>
 </div>
 
@@ -3423,6 +3549,9 @@ let autoSpeakTimer = null;   // 自动播报的计时器 id：用户一旦主动
 let speakWatchdog = null;    // 播报兜底检测（启动 / 块推进）：只做状态复位，不掐断音频
 let speakSeq = 0;            // 播报序号：忽略"已被取代"的播报回调
 let speakChainTimer = null;  // 分块朗读的串场计时器（块与块之间/重试等待）
+// 服药历史「批量管理」状态：是否处于选择模式、已勾选记录的 key 集合
+let historySelectMode = false;
+const historySelectedKeys = new Set();
 let lastTtsError = null;     // 最近一次 TTS 原始错误码（仅用于控制台排查，不展示给用户）
 
 // ============================================================
@@ -3436,6 +3565,10 @@ function showPage(pageId) {
   // 离开结果页停止播报：否则切页后语音还在念，用户会以为"关不掉"
   if (pageId !== 'result') {
     try { if (isSpeaking) stopSpeaking(); } catch (e) { /* 初始化早期忽略 */ }
+  }
+  // 离开用药记录页即退出批量管理模式，避免下次回来还停在选择态
+  if (pageId !== 'history') {
+    try { historySelectMode = false; historySelectedKeys.clear(); } catch (e) { /* 初始化早期忽略 */ }
   }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + pageId).classList.add('active');
@@ -5205,7 +5338,17 @@ const STORAGE_KEY = 'yaoyi_medication_records';
 function loadRecords() {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    const records = data ? JSON.parse(data) : [];
+    if (!Array.isArray(records)) return [];
+    // 兼容早期数据：那时的记录没有 id。这里按字段派生一个**稳定 id** 并回写，
+    // 否则"删除单条"无法可靠定位目标。整个过程幂等，重复加载不会有副作用。
+    let changed = false;
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      if (r && !r.id) { r.id = legacyRecordId(r); changed = true; }
+    }
+    if (changed) saveRecords(records);
+    return records;
   } catch (e) {
     return [];
   }
@@ -5219,10 +5362,203 @@ function saveRecords(records) {
   }
 }
 
+// ============================================================
+// 服药历史：删除（单条 / 批量 / 一键清空）
+//
+// 数据字段：每条记录沿用既有结构，仅**新增一个 id** 用于可靠定位：
+//   { id, drugId, drugName, date: 'YYYY-MM-DD', time: 'HH:mm', timestamp }
+//   · 老数据没有 id → loadRecords() 会按 (timestamp|drugId|time) 派生一个
+//     稳定 id 并回写，因此迁移是幂等的、删除目标永远可定位。
+//   · 存储方式不变：仍然是 localStorage 的 yaoyi_medication_records 这一个键，
+//     仍然是整体 JSON 覆盖写（见 saveRecords）。
+//
+// 删除后统一调用 refreshHistoryDependentViews()，把列表与所有依赖记录的
+// 统计一起刷新 —— 集中在一处维护，新增视图不会漏刷。
+// ============================================================
+
+// 老记录（无 id）的派生 id：由字段本身决定，多次加载结果一致
+function legacyRecordId(r) {
+  return 'legacy_' + (r && r.timestamp ? r.timestamp : 0)
+    + '_' + (r && r.drugId ? r.drugId : '')
+    + '_' + (r && r.time ? r.time : '');
+}
+
+function newRecordId() {
+  return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// 记录的唯一键（迁移之后 id 一定存在，这里再兜一层）
+function recordKey(r) {
+  if (!r) return '';
+  return r.id || legacyRecordId(r);
+}
+
+// 只统计"能渲染出来"的记录（药品已从内置库里移除的记录本来就不显示），
+// 保证「全选」和计数与用户看到的条目一致
+function visibleRecords() {
+  return loadRecords().filter(r => r && DRUG_DB[r.drugId]);
+}
+
+// 按唯一键批量删除，返回实际删除条数
+function deleteRecordsByKeys(keys) {
+  const set = new Set((keys || []).filter(Boolean));
+  if (!set.size) return 0;
+  const records = loadRecords();
+  const kept = records.filter(r => !set.has(recordKey(r)));
+  const removed = records.length - kept.length;
+  if (removed > 0) saveRecords(kept);
+  return removed;
+}
+
+function clearAllRecords() {
+  const n = loadRecords().length;
+  if (n > 0) saveRecords([]);
+  return n;
+}
+
+// 删除后刷新所有依赖用药记录的视图（漏一个就会出现"列表变了、统计没变"）
+function refreshHistoryDependentViews() {
+  const safe = fn => { try { fn(); } catch (e) { console.warn('刷新失败:', e); } };
+  safe(renderHistory);            // 历史列表本身
+  safe(renderHistoryInteractions);// 今日药物相互作用提醒
+  safe(renderComboAnalysis);      // AI 联合用药分析
+  safe(renderAdherenceScore);     // 用药依从性评分
+  safe(renderRepurchaseReminder); // 复购提醒
+  safe(renderTodayMeds);          // 首页「今日用药」
+}
+
+// ---- 二次确认弹窗 ----
+// 所有删除动作都必须先经过它。DOM 缺失时退化为原生 confirm，功能不会失效。
+let historyConfirmState = null;
+
+function openHistoryConfirm(opts) {
+  opts = opts || {};
+  const overlay = document.getElementById('history-confirm-overlay');
+  if (!overlay) {
+    const text = (opts.title || '确认删除？') + '\n' + String(opts.desc || '').replace(/<[^>]+>/g, '');
+    if (window.confirm(text)) { try { opts.onConfirm && opts.onConfirm(); } catch (e) { console.error(e); } }
+    return;
+  }
+  historyConfirmState = opts;
+  const icon = document.getElementById('hc-icon');
+  const title = document.getElementById('hc-title');
+  const desc = document.getElementById('hc-desc');
+  const ok = document.getElementById('hc-ok');
+  if (icon) icon.textContent = opts.icon || '🗑️';
+  if (title) title.textContent = opts.title || '确认删除？';
+  if (desc) desc.innerHTML = opts.desc || '';
+  if (ok) ok.textContent = opts.okText || '确认删除';
+  overlay.classList.add('show');
+  overlay.style.display = 'flex';
+}
+
+function closeHistoryConfirm() {
+  const overlay = document.getElementById('history-confirm-overlay');
+  if (overlay) { overlay.classList.remove('show'); overlay.style.display = 'none'; }
+  historyConfirmState = null;
+}
+
+function confirmHistoryAction() {
+  const st = historyConfirmState;
+  closeHistoryConfirm();
+  if (st && typeof st.onConfirm === 'function') {
+    try { st.onConfirm(); }
+    catch (e) { console.error('删除失败:', e); showToast('删除失败，请重试', 'warning'); }
+  }
+}
+
+// ---- 三种删除入口 ----
+function requestDeleteRecord(key) {
+  const target = loadRecords().find(r => recordKey(r) === key);
+  if (!target) {
+    showToast('这条记录已经不在了', 'warning');
+    refreshHistoryDependentViews();
+    return;
+  }
+  openHistoryConfirm({
+    icon: '🗑️',
+    title: '删除这条用药记录？',
+    desc: '<b>' + aiEscapeText(target.drugName) + '</b> · ' + aiEscapeText(target.date + ' ' + target.time)
+        + '<br>删除后无法恢复，相关统计会同步更新。',
+    okText: '确认删除',
+    onConfirm: function () {
+      const n = deleteRecordsByKeys([key]);
+      showToast(n ? '已删除 1 条记录' : '这条记录已经不在了', n ? 'success' : 'warning');
+      refreshHistoryDependentViews();
+    }
+  });
+}
+
+function requestDeleteSelected() {
+  const keys = Array.from(historySelectedKeys);
+  if (!keys.length) { showToast('请先勾选要删除的记录', 'warning'); return; }
+  openHistoryConfirm({
+    icon: '🗑️',
+    title: '删除选中的 ' + keys.length + ' 条记录？',
+    desc: '删除后无法恢复，相关统计会同步更新。',
+    okText: '确认删除 ' + keys.length + ' 条',
+    onConfirm: function () {
+      const n = deleteRecordsByKeys(keys);
+      exitHistorySelectMode();
+      showToast('已删除 ' + n + ' 条记录', n ? 'success' : 'warning');
+      refreshHistoryDependentViews();
+    }
+  });
+}
+
+function requestClearAllRecords() {
+  const total = loadRecords().length;
+  if (!total) { showToast('还没有用药记录', 'warning'); return; }
+  openHistoryConfirm({
+    icon: '⚠️',
+    title: '清空全部用药记录？',
+    desc: '将删除全部 <b>' + total + ' 条</b>记录，<b>无法恢复</b>。<br>'
+        + '用药依从性评分、联合用药分析等统计会一并归零。',
+    okText: '确认清空',
+    onConfirm: function () {
+      const n = clearAllRecords();
+      exitHistorySelectMode();
+      showToast('已清空 ' + n + ' 条记录', 'success');
+      refreshHistoryDependentViews();
+    }
+  });
+}
+
+// ---- 批量管理（选择模式）----
+// 状态变量 historySelectMode / historySelectedKeys 声明在文件顶部的「核心状态」区
+
+function toggleHistorySelectMode() {
+  historySelectMode = !historySelectMode;
+  historySelectedKeys.clear();
+  renderHistory();
+}
+
+function exitHistorySelectMode() {
+  historySelectMode = false;
+  historySelectedKeys.clear();
+  renderHistory();
+}
+
+function toggleRecordSelected(key) {
+  if (!key) return;
+  if (historySelectedKeys.has(key)) historySelectedKeys.delete(key);
+  else historySelectedKeys.add(key);
+  renderHistory();
+}
+
+function toggleSelectAllRecords() {
+  const all = visibleRecords().map(recordKey);
+  if (all.length && historySelectedKeys.size >= all.length) historySelectedKeys.clear();
+  else all.forEach(k => historySelectedKeys.add(k));
+  renderHistory();
+}
+
+
 function saveRecord(drug) {
   const records = loadRecords();
   const now = new Date();
   records.push({
+    id: newRecordId(),                 // 唯一 id：删除单条记录时靠它定位
     drugId: drug.id,
     drugName: drug.name,
     date: getTodayStr(),
@@ -5990,7 +6326,25 @@ function confirmMedication() {
 
 function renderHistory() {
   const container = document.getElementById('history-list');
-  const records = loadRecords();
+  const toolbar = document.getElementById('history-toolbar');
+  const selbar = document.getElementById('history-selbar');
+  const records = visibleRecords();   // 只渲染药品仍在库里的记录（与既有行为一致）
+
+  // 工具条：没有记录时不显示，避免点了没反应
+  if (toolbar) {
+    toolbar.style.display = records.length ? 'flex' : 'none';
+    const manageBtn = document.getElementById('history-manage-btn');
+    if (manageBtn) manageBtn.textContent = historySelectMode ? '完成' : '批量管理';
+  }
+  // 记录被删空时自动退出选择模式
+  if (!records.length) { historySelectMode = false; historySelectedKeys.clear(); }
+  if (selbar) selbar.classList.toggle('show', historySelectMode && records.length > 0);
+  if (historySelectMode && records.length) {
+    const cnt = document.getElementById('hs-count');
+    if (cnt) cnt.textContent = '已选 ' + historySelectedKeys.size + ' / ' + records.length + ' 条';
+    const allBtn = document.getElementById('hs-all');
+    if (allBtn) allBtn.textContent = (historySelectedKeys.size >= records.length) ? '取消全选' : '全选';
+  }
 
   if (records.length === 0) {
     container.innerHTML = '<div class="empty-state"><span class="empty-icon">📋</span>还没有用药记录<br>拍一下药盒开始记录吧</div>';
@@ -6017,21 +6371,41 @@ function renderHistory() {
     dayRecords.forEach(r => {
       const drug = DRUG_DB[r.drugId];
       if (!drug) return;
-      html += `
-        <div class="history-item">
-          <div class="h-icon">💊</div>
+      const key = recordKey(r);
+      const selected = historySelectedKeys.has(key);
+      const keyAttr = aiEscapeText(key);
+
+      if (historySelectMode) {
+        // 选择模式：整行可点，左侧圆形勾选框
+        html += `
+        <div class="history-item${selected ? ' selected' : ''}" data-key="${keyAttr}" onclick="toggleRecordSelected(this.getAttribute('data-key'))">
+          <div class="h-check">✓</div>
           <div class="h-info">
             <div class="h-name">${drug.name}</div>
             <div class="h-detail">${drug.plain_class} · ${drug.frequency}</div>
           </div>
           <div class="h-time">${r.time}</div>
         </div>`;
+      } else {
+        html += `
+        <div class="history-item" data-key="${keyAttr}">
+          <div class="h-icon">💊</div>
+          <div class="h-info">
+            <div class="h-name">${drug.name}</div>
+            <div class="h-detail">${drug.plain_class} · ${drug.frequency}</div>
+          </div>
+          <div class="h-actions">
+            <div class="h-time">${r.time}</div>
+            <button class="h-del" type="button" title="删除这条记录" aria-label="删除这条用药记录"
+              onclick="event.stopPropagation();requestDeleteRecord(this.closest('.history-item').getAttribute('data-key'))">🗑</button>
+          </div>
+        </div>`;
+      }
     });
     html += '</div>';
   });
   container.innerHTML = html;
 }
-
 // ============================================================
 // 工具函数
 // ============================================================
