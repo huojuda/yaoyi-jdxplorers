@@ -2064,7 +2064,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.3.1
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.3.2
   </div>
 </div>
 
@@ -3420,10 +3420,9 @@ let currentImageData = null;
 let mediaStream = null;
 let isSpeaking = false;
 let autoSpeakTimer = null;   // 自动播报的计时器 id：用户一旦主动点击就作废它
-let speakWatchdog = null;    // 播报启动兜底检测：没真出声时要给用户明确反馈
+let speakWatchdog = null;    // 播报兜底检测（启动 / 块推进）：只做状态复位，不掐断音频
 let speakSeq = 0;            // 播报序号：忽略"已被取代"的播报回调
 let speakChainTimer = null;  // 分块朗读的串场计时器（块与块之间/重试等待）
-let speakResumeTimer = null; // 播放期间的 resume 心跳：对付部分引擎的假暂停
 let lastTtsError = null;     // 最近一次 TTS 原始错误码（仅用于控制台排查，不展示给用户）
 
 // ============================================================
@@ -3733,86 +3732,127 @@ function handleFileSelect(event) {
 // 识别流程（调用后端 /api/recognize 进行真实AI识别）
 // 后端未启动时自动降级为演示模式，保证页面可用
 // ============================================================
+// 识别流程的"运行序号"：新一轮识别开始时作废上一轮遗留的所有回调
+let scanRunSeq = 0;
+
+// ---- 识别进度动画 + 网络请求（并行） ----
+// 【v1.3.2 时序修复】旧实现的顺序是：
+//     4 步动画跑完（约 4 秒）→ 才调用 finishRecognition() → 才发起
+//     /api/recognize → 再等一次完整的网络往返 → 才跳结果页。
+//   也就是说进度条打满之后，网络请求**才刚刚开始** —— 用户看到的就是
+//   "四项都打勾了，还要再等约五秒才出现服药信息界面"。
+// 现在改成两条线并行，并且**最后一步的打勾必须等请求就绪才落笔**：
+//   · 动画比请求快 → 最后一步显示"正在生成用药建议…"，请求一到立刻打勾 + 跳页；
+//   · 请求比动画快 → 动画跑完的那一刻就是结果页出现的时刻。
+// 两种情况下都不会再出现"全打勾了还在空等"。
 function startRecognition(imageData) {
   currentImageData = imageData;
   document.getElementById('scanning-img').src = imageData;
   showPage('scanning');
 
-  // 重置步骤状态
+  const run = ++scanRunSeq;
   const steps = document.querySelectorAll('.scan-step');
   steps.forEach(s => {
     s.classList.remove('active', 'done');
     s.querySelector('.step-status').textContent = '等待中';
   });
 
-  // 逐步执行识别动画
+  // 请求立刻出发，不等动画
+  const reqPromise = runRecognitionRequest().then(
+    result => ({ ok: true, result: result }),
+    error => ({ ok: false, error: error })
+  );
+
+  const STEP_MS = 650;      // 每步时长：4 步合计约 2.6 秒
   let stepIndex = 0;
-  const runStep = () => {
-    if (stepIndex > 0) {
-      steps[stepIndex - 1].classList.remove('active');
-      steps[stepIndex - 1].classList.add('done');
-      steps[stepIndex - 1].querySelector('.step-status').textContent = '完成 ✓';
-    }
-    if (stepIndex >= steps.length) {
-      finishRecognition();
-      return;
-    }
-    steps[stepIndex].classList.add('active');
-    steps[stepIndex].querySelector('.step-status').textContent = '处理中...';
-    stepIndex++;
-    setTimeout(runStep, 800 + Math.random() * 400);
+  let animDone = false;     // 动画是否已推进到最后一步
+  let payload = null;       // 请求结果（成功或失败）
+  let navigated = false;
+
+  const setStatus = (el, text) => {
+    const s = el.querySelector('.step-status');
+    if (s) s.textContent = text;
   };
-  runStep();
+
+  function settle() {
+    if (navigated || run !== scanRunSeq) return;
+    if (!animDone || !payload) return;          // 动画与请求都就绪才收口
+    navigated = true;
+    if (steps.length) {
+      const last = steps[steps.length - 1];
+      last.classList.remove('active');
+      last.classList.add('done');
+      setStatus(last, '完成 ✓');                 // 打完最后一个勾，立刻跳页
+    }
+    try {
+      applyRecognitionResult(payload);
+    } catch (err) {
+      console.warn('渲染识别结果失败:', err);
+      showToast('结果渲染失败，请重新拍摄', 'warning');
+      showPage('camera');
+    }
+  }
+
+  if (!steps.length) {
+    animDone = true;
+    settle();
+  } else {
+    const tick = () => {
+      if (run !== scanRunSeq) return;
+      // 中间步骤到点就打勾；最后一步保持"进行中"，避免出现"全打勾了还在等"
+      if (stepIndex > 0 && stepIndex < steps.length) {
+        const prev = steps[stepIndex - 1];
+        prev.classList.remove('active');
+        prev.classList.add('done');
+        setStatus(prev, '完成 ✓');
+      }
+      if (stepIndex >= steps.length) {
+        animDone = true;
+        if (!payload) setStatus(steps[steps.length - 1], '正在生成用药建议…');
+        settle();
+        return;
+      }
+      const cur = steps[stepIndex];
+      cur.classList.add('active');
+      setStatus(cur, '处理中...');
+      stepIndex++;
+      setTimeout(tick, STEP_MS);
+    };
+    tick();
+  }
+
+  reqPromise.then(p => {
+    if (run !== scanRunSeq) return;
+    payload = p;
+    // 动画已跑完但请求刚到：让最后一步的文案如实反映"还在等结果"
+    if (animDone && steps.length && !navigated) {
+      setStatus(steps[steps.length - 1], '正在生成用药建议…');
+    }
+    settle();
+  });
 }
 
-async function finishRecognition() {
-  try {
-    // 调用后端真实识别 API
-    let result = await apiPost('/api/recognize', { image: currentImageData });
+// 只负责发请求，拿到原始结果或抛出异常（不含任何 UI 跳转）
+async function runRecognitionRequest() {
+  // 调用后端真实识别 API
+  let result = await apiPost('/api/recognize', { image: currentImageData });
 
-    // EdgeOne 预览链接会丢弃大体积 POST body（报"缺少图片数据"）→ 改走 GET 分片通道
-    if (result.error && /缺少图片数据/.test(result.error) && currentImageData && currentImageData.length > 1000) {
-      showToast('直传通道不可用，改用分片通道上传…', 'info');
-      result = await recognizeViaChunks(currentImageData);
-    }
+  // EdgeOne 预览链接会丢弃大体积 POST body（报"缺少图片数据"）→ 改走 GET 分片通道
+  if (result.error && /缺少图片数据/.test(result.error) && currentImageData && currentImageData.length > 1000) {
+    showToast('直传通道不可用，改用分片通道上传…', 'info');
+    result = await recognizeViaChunks(currentImageData);
+  }
 
-    if (result.error) {
-      throw new Error(result.error);
-    }
+  if (result.error) throw new Error(result.error);
+  return result;
+}
 
-    // 用 API 返回的药名匹配内置药品数据库
-    const drug = matchDrug(result);
-    if (drug) {
-      currentDrug = drug;
-  setTimeout(() => { if (currentDrug) checkAbnormalBehavior(currentDrug.id, currentDrug.name); }, 300);
-  setTimeout(() => { if (currentDrug) checkAbnormalBehavior(currentDrug.id, currentDrug.name); }, 500);
-      renderResult(currentDrug);
-      showToast('识别完成 ✅', 'success');
-    } else {
-      // 识别成功但数据库未收录
-      currentDrug = null;
-      showPage('result');
-      document.getElementById('result-drug-name').textContent = result.drug_name || '未识别药品';
-      document.getElementById('result-drug-class').textContent =
-        (result.brand_name ? result.brand_name + ' · ' : '') + '暂未收录该药品，请咨询医生或家属';
-      document.getElementById('result-confidence').textContent = '';
-      document.getElementById('result-frequency').textContent = '—';
-      document.getElementById('result-frequency-detail').textContent = '';
-      document.getElementById('result-timing').textContent = '—';
-      document.getElementById('result-timing-detail').textContent = '';
-      document.getElementById('result-meal').textContent = '—';
-      document.getElementById('result-meal-detail').textContent = '';
-      document.getElementById('result-contraindication').textContent = '请遵医嘱';
-      document.getElementById('result-contraindication-detail').textContent = '';
-      document.getElementById('duplicate-alert').style.display = 'none';
-      var daiBox = document.getElementById('duplicate-ai');
-      if (daiBox) daiBox.style.display = 'none';
-      document.getElementById('confirm-btn').style.display = 'none';
-      showToast('识别成功，但数据库暂未收录该药品', 'warning');
-    }
-  } catch (e) {
-    console.warn('真实API调用失败，降级为演示模式:', e);
+// 把请求结果落到界面上
+function applyRecognitionResult(payload) {
+  if (!payload.ok) {
     // 降级：未连接服务器时用演示模式，同时显示真实原因便于定位
+    const e = payload.error;
+    console.warn('真实API调用失败，降级为演示模式:', e);
     const drugKeys = Object.keys(DRUG_DB);
     const hash = simpleHash(currentImageData || '');
     const drugKey = drugKeys[hash % drugKeys.length];
@@ -3820,7 +3860,41 @@ async function finishRecognition() {
     renderResult(currentDrug);
     const reason = String((e && e.message) || e || '未知错误');
     showToast('演示模式（原因: ' + (reason.length > 70 ? reason.slice(0, 70) + '…' : reason) + '）', 'warning');
+    return;
   }
+
+  const result = payload.result;
+
+  // 用 API 返回的药名匹配内置药品数据库
+  const drug = matchDrug(result);
+  if (drug) {
+    currentDrug = drug;
+    renderResult(currentDrug);
+    showToast('识别完成 ✅', 'success');
+    setTimeout(() => { if (currentDrug) checkAbnormalBehavior(currentDrug.id, currentDrug.name); }, 300);
+    return;
+  }
+
+  // 识别成功但数据库未收录
+  currentDrug = null;
+  showPage('result');
+  document.getElementById('result-drug-name').textContent = result.drug_name || '未识别药品';
+  document.getElementById('result-drug-class').textContent =
+    (result.brand_name ? result.brand_name + ' · ' : '') + '暂未收录该药品，请咨询医生或家属';
+  document.getElementById('result-confidence').textContent = '';
+  document.getElementById('result-frequency').textContent = '—';
+  document.getElementById('result-frequency-detail').textContent = '';
+  document.getElementById('result-timing').textContent = '—';
+  document.getElementById('result-timing-detail').textContent = '';
+  document.getElementById('result-meal').textContent = '—';
+  document.getElementById('result-meal-detail').textContent = '';
+  document.getElementById('result-contraindication').textContent = '请遵医嘱';
+  document.getElementById('result-contraindication-detail').textContent = '';
+  document.getElementById('duplicate-alert').style.display = 'none';
+  var daiBox = document.getElementById('duplicate-ai');
+  if (daiBox) daiBox.style.display = 'none';
+  document.getElementById('confirm-btn').style.display = 'none';
+  showToast('识别成功，但数据库暂未收录该药品', 'warning');
 }
 
 // ---- GET 分片上传识别：把 dataURL 切成小片经 GET 存入 Redis，最后一片触发组装识别 ----
@@ -3906,6 +3980,10 @@ function simpleHash(str) {
 // 结果展示
 // ============================================================
 function renderResult(drug) {
+  // 新一轮识别结果 → 停掉并复位上一轮的播报状态，避免按钮停留在
+  // "暂停播报/继续播报"这类上一轮遗留的文案上（界面状态与识别流程同步）。
+  try { stopSpeaking(); } catch (e) { /* 初始化早期忽略 */ }
+
   document.getElementById('result-drug-name').textContent = drug.name;
   document.getElementById('result-drug-class').textContent = drug.plain_class + '（' + drug.brand_names.join(' / ') + '）';
   document.getElementById('result-confidence').textContent = '识别置信度：' + (88 + Math.floor(Math.random() * 10)) + '%';
@@ -3960,52 +4038,69 @@ function renderResult(drug) {
 }
 
 // ============================================================
-// 语音播报（v1.3.1 重写）
+// 语音播报（v1.3.2 重写 · 交互改为「点击即暂停/继续」）
 //
-// 【历史修复】"点了没声音"的三处根因：
-//  1) 自动播报的计时器必须可作废 —— 否则它会在用户自己点播后被触发，
-//     走"正在播报"分支把用户的声音掐掉；
-//  2) 用户点击 = 从头重播，**永远要出声** —— 旧版把"正在播报时的点击"
-//     当成"停止"，导致用户点了却听不到任何新声音；
+// 【历史修复】"点了没声音"的三处根因（v1.3.0 已修）：
+//  1) 自动播报的计时器必须可作废，否则会在用户自己点播后插进来掐掉声音；
+//  2) 点击语义要明确，不能把"正在播报时的点击"当成静默的停止；
 //  3) 状态不能只靠 onstart/onend 驱动 —— cancel() 不会触发 onend，
-//     旧版的 isSpeaking 一旦被外部打断就永久卡在 true，此后点击全部静默失效。
+//     一旦被外部打断就会永久卡在"播报中"，此后点击全部静默失效。
 //
-// 【v1.3.1 修复】手机端点击播报弹出提示「synthesis-failed」：
-//   该字符串是 SpeechSynthesisErrorEvent.error 的**原始错误码**，
-//   被 onerror 直接拼进 toast 透传给了用户 —— 即"把系统内部错误码当提示语"。
-//   它被抛出的真实原因三条，且都只在移动端（Android Chrome / WebView）触发，
-//   桌面端复现不出来：
-//     A) 发起播报前无条件 cancel()：Android 上 TTS 引擎"停止 → 朗读"的状态
-//        切换远比桌面端慢，cancel() 后仅隔 60ms 就 speak() 会命中引擎未就绪，
-//        直接回 synthesis-failed；
-//     B) 单次朗读文本过长（结果页文案约 150~200 字）：移动端引擎不会像桌面
-//        Chrome 那样自动分句，长文本易合成失败；桌面 Chrome 另有"约 15 秒后
-//        自动静音"的已知缺陷，分块后一并规避；
-//     C) 绑定了 voice 对象或指定 zh-HK 等 lang，而系统缺少对应语音包，
-//        引擎立刻回 synthesis-failed。
+// 【v1.3.2 修复】弹窗声称"需要安装中文语音包 / 改用系统浏览器" —— 这是误报。
+//   因果链（v1.3.1 引入的回归）：
+//     a) v1.3.1 的"启动兜底"在 2.5 秒内没收到 onstart 就判定播报失败。
+//        但**部分移动端引擎根本不触发 onstart，却确实在出声**；
+//     b) 判定失败时又去读 getVoices()，而 Android 上它经常返回**空数组**
+//        （语音列表是异步加载的），于是文案被误判成"未提供中文语音包"；
+//     c) 更糟的是该分支还会置 finished=true —— 分块链被直接掐死，
+//        用户听到的只有第一块，后面的全没了。
+//   结果：在一个**本来能正常播报**的环境里，弹出"要装语音包/要换浏览器"，
+//   并把播放拦腰截断。修复原则 —— **宁可什么都不做，也不要误判并中断播放**：
+//     1) 删除一切"安装语音包/改用系统浏览器"的措辞（环境本来就能用）；
+//     2) 不再以 getVoices() 是否为空推断能力（Android 常态为空）；
+//     3) 判断"有没有在播"一律以 speaking/pending 为准，不看有没有回调；
+//     4) 兜底只做 UI 状态复位，**绝不置 finished、绝不掐断音频**；
+//     5) 能力探测放宽回与 v1.3.0 相同的口径（只有 'speechSynthesis' in window）；
+//     6) 去掉自加的 resume() 心跳（收益未经验证，却有干扰引擎的风险）。
 //
-//   对应修复：
-//    1) 不再透传原始错误码 —— 按 error 类型映射为可操作的中文提示，
-//       原始码只写进控制台；
-//    2) 空闲时不调 cancel()（首次点击本就没有东西需要打断）；确需打断时
-//       移动端把等待放宽到 220ms；
-//    3) 长文本按标点切块（≤80 字）顺序朗读，块间由 onend 串联；
-//    4) synthesis-failed 自动重试：降级为"纯文本模式"（不绑定 voice、
-//       不指定特殊 lang、回到默认语速音调），最多 2 次；
-//    5) 开始朗读后每 5 秒 resume() 一次，对付部分引擎的假暂停。
+// 【v1.3.2 功能】点击播报控件 = 暂停/继续，与真实播放状态同步：
+//   idle --点击--> playing --点击--> paused --点击--> playing ...
+//   优先用引擎原生 pause()/resume()（保留位置）；实测不可用时退回
+//   "取消 + 记住块号，继续时从该块重念"（位置会退到块首，但一定有效）。
 // ============================================================
 let currentDialect = 'mandarin';
 
-// 能力探测：部分 WebView 有 speechSynthesis 却没有 SpeechSynthesisUtterance 构造函数。
-// 必须【调用时】求值，不能在校本解析时缓存 —— 能力可能后置注入，缓存会得到过期结论。
+// 播放状态机：idle（未播）/ playing（播报中）/ paused（已暂停）
+let speakState = 'idle';
+let speakChunks = [];        // 当前播报文本切分后的块
+let speakText = '';          // 当前播报的完整文本（继续播放时复用）
+let speakIndex = 0;          // 当前正在念第几块（暂停后从此块恢复）
+let speakSourceId = '';      // 这次播报是哪个控件发起的（决定哪颗按钮显示状态）
+let nativePauseOk = null;    // null=未实测 / true=原生暂停可用 / false=退回取消式暂停
+let speakArmGuard = null;    // 当前播报链的"块级兜底"重挂函数（原生暂停恢复后需要它）
+
+// 能力探测：口径与 v1.3.0 保持一致，只要求 speechSynthesis 存在。
+// 不要求 SpeechSynthesisUtterance 必须是函数 —— 多一条判定就多一次
+// "把本来能用的环境判成不支持"的机会。必须【调用时】求值，不能解析时缓存。
 function ttsSupported() {
+  try { return ('speechSynthesis' in window) && !!window.speechSynthesis; }
+  catch (e) { return false; }
+}
+
+// 引擎是否真的在忙（播报中或已排队）。判断"有没有在播"只信这个，
+// 不信"有没有收到 onstart" —— 部分移动端引擎不触发 onstart 但确实在出声。
+function isSynthBusy() {
   try {
-    return (typeof window !== 'undefined')
-      && ('speechSynthesis' in window)
-      && (typeof window.SpeechSynthesisUtterance === 'function')
-      && !!window.speechSynthesis;
+    const s = window.speechSynthesis;
+    return !!(s && (s.speaking || s.pending));
   } catch (e) { return false; }
 }
+
+function isSynthPaused() {
+  try { return !!(window.speechSynthesis && window.speechSynthesis.paused); }
+  catch (e) { return false; }
+}
+
 const TTS_IS_MOBILE = /Android|iPhone|iPad|iPod|HarmonyOS|Mobile|MicroMessenger/i.test(
   (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '');
 
@@ -4033,38 +4128,43 @@ function splitForSpeech(text, maxLen) {
   return chunks.length ? chunks : [raw];
 }
 
-// 把引擎错误码翻译成用户能照着做的话（绝不把原始码展示给用户）
+// 把引擎错误码翻译成用户能照着做的话。
+// ❗ 措辞纪律：**不要出现"安装中文语音包""改用系统浏览器打开"**。
+//   这两个说法在 v1.3.1 里是误报（见文件顶部说明），会把本来能用的环境
+//   说成不能用，用户照着做也没用。提示只给"再点一次"这类真正可执行的动作。
 function ttsErrorMessage(reason) {
   switch (reason) {
     case 'not-allowed':
-      return '语音播报被浏览器拦截，请再点一次「语音播报」';
-    case 'synthesis-failed':
-      return '手机语音引擎未能合成声音，请到系统「设置 → 辅助功能 → 文字转语音」确认已安装中文语音包，或改用系统浏览器打开本页';
-    case 'voice-unavailable':
-    case 'language-unavailable':
-      return '手机缺少中文语音包，请到系统「文字转语音」设置中下载后重试';
+      return '语音播报被拦截了，请再点一次「语音播报」';
     case 'audio-busy':
-      return '音频通道被其他应用占用，请先关闭音乐或通话后重试';
+      return '音频通道被其他应用占用，请先关闭音乐或通话后再点一次';
     case 'audio-hardware':
-      return '音频设备不可用，请检查手机是否处于静音或媒体音量为 0';
+      return '音频设备暂不可用，请检查手机是否静音或媒体音量为 0';
     case 'network':
-      return '语音合成需要联网，请检查网络后重试';
-    case 'text-too-long':
-      return '播报内容过长，请重新识别药品后再试';
+      return '语音合成需要联网，请检查网络后再点一次';
     case 'invalid-argument':
       return '播报内容异常，请重新识别药品后再试';
     default:
-      return '语音播报失败，请检查手机媒体音量后重试';
+      // synthesis-failed / voice-unavailable / language-unavailable 等
+      // 都归到这里：不猜测病因、不给用户做不到的建议，只让他重试一次。
+      return '语音播报未能启动，请再点一次试试';
   }
 }
 
-// 诊断入口：手机上看不到控制台时，可在页面里执行 __yaoyiTTS() 查看真实原因
+// 诊断入口：手机上看不到控制台时，可在页面里执行 __yaoyiTTS() 查看真实状态
 window.__yaoyiTTS = function () {
+  let s = null;
+  try { s = window.speechSynthesis; } catch (e) { /* 忽略 */ }
   return {
     supported: ttsSupported(),
-    mobile: TTS_IS_MOBILE,
+    state: speakState,
+    speaking: !!(s && s.speaking),
+    pending: !!(s && s.pending),
+    paused: !!(s && s.paused),
     voices: getVoicesSafe().length,
+    nativePauseOk: nativePauseOk,
     lastError: lastTtsError,
+    mobile: TTS_IS_MOBILE,
     ua: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : ''
   };
 };
@@ -4107,31 +4207,56 @@ function isResultPageActive() {
   return !!(p && p.classList.contains('active'));
 }
 
+// ---- 播放状态 ↔ 按钮文案（唯一的事实来源是 speakState） ----
+function voiceButtonEl() { return document.getElementById('voice-btn'); }
+
+function updateVoiceButton() {
+  isSpeaking = (speakState === 'playing');
+  // 只有结果页的按钮跟随状态；AI 问答页另有两颗播报按钮，不在此处改文案
+  if (speakSourceId && speakSourceId !== 'result') return;
+  const btn = voiceButtonEl();
+  if (!btn) return;
+  btn.classList.toggle('speaking', speakState === 'playing');
+  if (speakState === 'playing') btn.innerHTML = '⏸️ 暂停播报';
+  else if (speakState === 'paused') btn.innerHTML = '▶️ 继续播报';
+  else btn.innerHTML = '🔊 语音播报';
+}
+
+function setSpeakState(next) {
+  speakState = next;
+  updateVoiceButton();
+}
+
+// 复位为"未播报"。只动 UI 与状态，**不碰音频** ——
+// v1.3.1 的教训：兜底里顺手掐断播放，会把本来正常的播报拦腰截断。
 function resetVoiceButton() {
+  speakState = 'idle';
   isSpeaking = false;
-  const btn = document.getElementById('voice-btn');
+  speakArmGuard = null;
+  const btn = voiceButtonEl();
   if (!btn) return;
   btn.classList.remove('speaking');
   btn.innerHTML = '🔊 语音播报';
 }
 
-// 停止播报：作废自动播报计时器 + 让在途回调失效 + 复位按钮
+// 清掉播报链路上的所有计时器
+function clearSpeakTimers() {
+  if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+  if (speakChainTimer) { clearTimeout(speakChainTimer); speakChainTimer = null; }
+}
+
+// 彻底停止：作废自动播报 + 让在途回调失效 + 静音 + 复位
 function stopSpeaking() {
   if (autoSpeakTimer) { clearTimeout(autoSpeakTimer); autoSpeakTimer = null; }
   clearSpeakTimers();
   speakSeq++;
+  speakArmGuard = null;
   try {
     const s = window.speechSynthesis;
-    if (s && (s.speaking || s.pending)) s.cancel();
+    if (s && (s.speaking || s.pending || s.paused)) s.cancel();
   } catch (e) { /* 无 TTS 环境忽略 */ }
+  speakIndex = 0;
   resetVoiceButton();
-}
-
-// 清掉播报链路上的所有计时器（分块串场 / resume 心跳 / 启动兜底）
-function clearSpeakTimers() {
-  if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
-  if (speakChainTimer) { clearTimeout(speakChainTimer); speakChainTimer = null; }
-  if (speakResumeTimer) { clearInterval(speakResumeTimer); speakResumeTimer = null; }
 }
 
 // 结果页播放文案（点击播报与自动播报共用）
@@ -4144,20 +4269,43 @@ function buildSpeakText(drug) {
     + drug.elderly_explanation;
 }
 
-// 用户点击「语音播报」：总是从头重播，保证"点了就有声音"
+// ---- 点击即暂停/继续 ----
+// 同一颗控件的点击语义：idle → 开始播；playing → 暂停；paused → 继续。
+// 点了另一颗控件（sourceId 不同）则视为"改播这条新内容"。
+function speakToggle(text, sourceId) {
+  if (!text) {
+    showToast('暂无可播报的内容', 'warning');
+    return;
+  }
+  if (speakSourceId === sourceId) {
+    if (speakState === 'paused') { resumeSpeaking(); return; }
+    if (speakState === 'playing') {
+      // 状态可能与实际播放不同步（播报被系统/其他页面打断时不会回调我们）：
+      // 只有引擎确实还在忙，点击才算"暂停"；否则视为"接着播"，避免点了没反应。
+      if (isSynthBusy() || isSynthPaused()) { pauseSpeaking(); return; }
+      speak(text, false, sourceId, speakIndex);
+      return;
+    }
+  }
+  speak(text, false, sourceId, 0);
+}
+
+// 结果页那颗按钮（HTML 里 onclick 绑的就是它）
 function speakResult() {
   if (!currentDrug) {
     showToast('暂无可播报的药品信息', 'warning');
     return;
   }
-  speak(buildSpeakText(currentDrug), false);
+  speakToggle(buildSpeakText(currentDrug), 'result');
 }
 
 // 播报主流程。
-// silent = true 用于自动播报：失败时不弹提示（用户没主动要求，弹窗只会打扰）。
-function speak(text, silent) {
+// silent   = true 用于自动播报：失败时不弹提示（用户没主动要求，弹窗只会打扰）。
+// sourceId = 发起控件（'result' / 'ai' / 'dup'），决定哪颗按钮显示状态。
+// startIndex = 从第几块开始（暂停后"继续"时用来从当前块重念）。
+function speak(text, silent, sourceId, startIndex) {
   if (!ttsSupported()) {
-    if (!silent) showToast('当前浏览器不支持语音播报，请用系统浏览器打开本页', 'warning');
+    if (!silent) showToast('此设备暂不支持语音播报', 'warning');
     return;
   }
   if (!text) return;
@@ -4169,35 +4317,72 @@ function speak(text, silent) {
   const seq = ++speakSeq;
   const synth = window.speechSynthesis;
 
-  const chunks = splitForSpeech(text, 80);
-  if (!chunks.length) return;
+  speakText = text;
+  // 切块上限 180 字：结果页文案约 110 字 → 单块，走最简最稳的路径；
+  // 只有 AI 长回答才会真正分块（同时规避长文本与 Chrome 约 15 秒自动静音）。
+  speakChunks = splitForSpeech(text, 180);
+  if (!speakChunks.length) return;
+  speakSourceId = sourceId || 'result';
+  speakIndex = Math.max(0, Math.min(startIndex | 0, speakChunks.length - 1));
 
-  // 立即置为"播报中"，不等 onstart —— 否则存在"已发起但状态还是未播报"的错位窗口
-  isSpeaking = true;
-  if (isResultPageActive()) {
-    const btn = document.getElementById('voice-btn');
-    if (btn) { btn.classList.add('speaking'); btn.innerHTML = '🔄 正在播报 · 点击重播'; }
-  }
+  setSpeakState('playing');
 
-  let gotAudio = false;    // 是否至少有一块真的开始出声
-  let finished = false;    // 整条链路是否已收尾（防止重复收尾）
+  let gotAudio = false;   // 是否已确认在出声（onstart 或引擎 busy 都算）
+  let dead = false;       // 仅在"确实失败"时置位；兜底不复位它，避免误掐播放
 
   function finishAll(errMsg) {
-    if (finished) return;
-    finished = true;
+    if (dead) return;
+    dead = true;
     if (seq !== speakSeq) return;
     clearSpeakTimers();
+    speakArmGuard = null;
+    speakIndex = 0;
     resetVoiceButton();
     if (errMsg && !silent) showToast(errMsg, 'warning');
   }
 
-  // 朗读第 index 块。plain = true 表示"纯文本降级模式"：
-  // 不绑定 voice、不指定特殊 lang，把音色交给系统自选（移动端最有效的兜底）。
-  function playChunk(index, plain, attempt) {
-    if (seq !== speakSeq || finished) return;
-    if (index >= chunks.length) { finishAll(null); return; }
+  // 块级推进：onend 正常路径与"引擎不报 onend"的兜底路径共用
+  function advance() {
+    if (seq !== speakSeq || dead) return;
+    if (speakIndex + 1 >= speakChunks.length) { finishAll(null); return; }
+    speakIndex++;
+    playChunk(speakIndex, false, 0);
+  }
 
-    const utter = new SpeechSynthesisUtterance(chunks[index]);
+  // 块级兜底：开始朗读后 onend 迟迟不来时，先看引擎是否真的还在忙 ——
+  // 还在忙就继续等，确认空闲了才推进。这样"引擎不触发 onend"的环境也能
+  // 把后面几块念完，而不是被截断（v1.3.1 正是在这里一刀切断了播放）。
+  function armChunkGuard() {
+    if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+    if (seq !== speakSeq || dead) return;
+    const len = (speakChunks[speakIndex] || '').length;
+    speakWatchdog = setTimeout(() => {
+      speakWatchdog = null;
+      if (seq !== speakSeq || dead) return;
+      if (speakState === 'paused') return;                              // 暂停期间不判断
+      if (isSynthBusy() || isSynthPaused()) { armChunkGuard(); return; } // 还在念 → 继续等
+      advance();
+    }, Math.max(5000, len * 420));
+  }
+  speakArmGuard = armChunkGuard;
+
+  // 朗读第 index 块。plain = true 是"纯文本降级模式"：
+  // 不绑定 voice、不指定特殊 lang，把音色交给系统自选。
+  function playChunk(index, plain, attempt) {
+    if (seq !== speakSeq || dead) return;
+    if (index >= speakChunks.length) { finishAll(null); return; }
+
+    let utter;
+    try {
+      utter = new SpeechSynthesisUtterance(speakChunks[index]);
+    } catch (err) {
+      // 极少数环境有 speechSynthesis 却没有构造函数：说清事实即可，
+      // 不劝用户换浏览器（那是 v1.3.1 的误报措辞）。
+      lastTtsError = 'ctor:' + ((err && err.message) ? err.message : err);
+      finishAll('此设备暂不支持语音播报');
+      return;
+    }
+
     let rate = 0.8;
     let pitch = 1.0;
 
@@ -4228,69 +4413,44 @@ function speak(text, silent) {
     let settled = false;
 
     utter.onstart = () => {
-      if (seq !== speakSeq || settled) return;
+      if (seq !== speakSeq || settled || dead) return;
       gotAudio = true;
-      // 块级完成兜底：该块已开始朗读，但迟迟不触发 onend（被系统挂起、
-      // 切后台、引擎假死）时，状态必须能自己复位，否则按钮永久卡在"正在播报"。
-      // 每次 onstart 都会清掉上一块的兜底，故不会误伤。
-      if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
-      const maxMs = Math.max(6000, chunks[index].length * 400);
-      speakWatchdog = setTimeout(() => {
-        speakWatchdog = null;
-        if (seq !== speakSeq || settled || finished) return;
-        finishAll(null);
-      }, maxMs);
-      // resume 心跳：部分移动端引擎会在无操作时进入假暂停
-      if (!speakResumeTimer) {
-        speakResumeTimer = setInterval(() => {
-          if (seq !== speakSeq || finished) return;
-          try { synth.resume(); } catch (e) { /* 忽略 */ }
-        }, 5000);
-      }
+      setSpeakState('playing');     // 用引擎的真实回调把按钮状态拉回同步
+      armChunkGuard();
     };
 
     utter.onend = () => {
-      if (seq !== speakSeq || settled) return;
+      if (seq !== speakSeq || settled || dead) return;
       settled = true;
-      if (finished) return;
-      // 块间留一点停顿，听感更自然；下一块始终回到常规模式
-      speakChainTimer = setTimeout(() => playChunk(index + 1, false, 0), 140);
+      if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+      if (speakState === 'paused') return;                      // 暂停中被判结束 → 交给"继续"处理
+      speakChainTimer = setTimeout(advance, 140);               // 块间留一点停顿
     };
 
     utter.onerror = (e) => {
-      if (seq !== speakSeq || settled) return;
+      if (seq !== speakSeq || settled || dead) return;
       settled = true;
       const reason = (e && e.error) ? String(e.error) : '';
       lastTtsError = reason;
       try { console.warn('[TTS] error=' + reason + ' plain=' + plain + ' attempt=' + attempt); } catch (err) {}
 
-      // 'interrupted' / 'canceled' 是主动打断，不算故障
+      // 主动打断：正常含义是"已被新的播报 / 停止取代"，那些路径自己会接管状态。
+      // 若引擎自发取消且无人接管，350ms 后确认它确实空闲再复位，避免按钮卡死。
       if (reason === 'interrupted' || reason === 'canceled') {
-        // 正常情况下它意味着"已被新的播报/停止取代"，而那些路径自己会接管状态。
-        // 但引擎也可能自发取消且无人接管 —— 那样 isSpeaking 会永久卡住，
-        // 此后点击全部静默失效，故加一道 350ms 兜底复位。
         setTimeout(() => {
-          if (seq !== speakSeq || finished) return;
-          try {
-            if (!synth.speaking && !synth.pending) {
-              finished = true;
-              clearSpeakTimers();
-              resetVoiceButton();
-            }
-          } catch (err) { /* 忽略 */ }
+          if (seq !== speakSeq || dead) return;
+          if (speakState === 'paused') return;
+          if (!isSynthBusy() && !isSynthPaused()) resetVoiceButton();
         }, 350);
         return;
       }
-      if (finished) return;
 
-      // 关键兜底：失败后改用"纯文本模式"重试同一块（共 2 次尝试）。
-      // 移动端 synthesis-failed 绝大多数是"引擎未就绪 / 音色不可用"，
-      // 换个干净的 utterance 再喂一次即可恢复。
+      // 首次失败 → 换"纯文本模式"重试同一块（共 2 次尝试）。
       if (!plain) {
         if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
         speakChainTimer = setTimeout(() => {
-          if (seq !== speakSeq || finished) return;
-          try { synth.cancel(); } catch (err) {}
+          if (seq !== speakSeq || dead) return;
+          try { synth.cancel(); } catch (err) { /* 忽略 */ }
           speakChainTimer = setTimeout(
             () => playChunk(index, true, attempt + 1),
             TTS_IS_MOBILE ? 260 : 80
@@ -4304,41 +4464,122 @@ function speak(text, silent) {
 
     try {
       synth.speak(utter);
-      // 启动兜底：只要还没听到任何声音，就在 2.5s 后检查是否真的开始了。
-      // 覆盖首次尝试与"纯文本模式"重试两条路径，避免重试后无人收尾。
-      if (!gotAudio) {
-        if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
-        speakWatchdog = setTimeout(() => {
-          speakWatchdog = null;
-          if (seq !== speakSeq || gotAudio || finished) return;
-          finishAll(getVoicesSafe().length
-            ? '语音没有播放，请检查手机是否静音或媒体音量过低'
-            : '系统未提供中文语音包，暂时无法播报，请到系统「文字转语音」设置中下载');
-        }, 2500);
-      }
     } catch (err) {
-      lastTtsError = 'throw:' + (err && err.message ? err.message : err);
+      lastTtsError = 'throw:' + ((err && err.message) ? err.message : err);
       if (!plain) {
         speakChainTimer = setTimeout(() => playChunk(index, true, attempt + 1), TTS_IS_MOBILE ? 260 : 80);
         return;
       }
-      finishAll('语音播报启动失败，请检查手机媒体音量后重试');
+      finishAll(ttsErrorMessage('synthesis-failed'));
+      return;
+    }
+
+    // 启动兜底：4 秒内既没有 onstart、引擎也不忙 → 只复位按钮，**不判死**。
+    // v1.3.1 的三处错都改在这里：
+    //   ① 不再看 getVoices() 是否为空去推断"缺语音包"（Android 上它常为空）；
+    //   ② 不再置 dead，因此引擎晚到也能继续播，不会被掐断；
+    //   ③ 措辞里不再出现"装语音包 / 换浏览器"。
+    if (!gotAudio) {
+      if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+      speakWatchdog = setTimeout(() => {
+        speakWatchdog = null;
+        if (seq !== speakSeq || dead) return;
+        if (speakState === 'paused') return;
+        // 引擎其实在播（只是没回调 onstart）→ 视为正常，接着走块级兜底
+        if (gotAudio || isSynthBusy() || isSynthPaused()) { gotAudio = true; armChunkGuard(); return; }
+        resetVoiceButton();
+        if (!silent) showToast('语音没有播放，请检查手机是否静音或媒体音量过低', 'warning');
+      }, 4000);
     }
   }
 
-  // 启动前不再无条件 cancel()：空闲时 cancel 反而会把 Android 引擎推入
-  // "未就绪"状态 —— 这正是首次点击就回 synthesis-failed 的常见触发源。
-  const needsCancel = !!(synth.speaking || synth.pending);
+  // 空闲时不 cancel()（首次点击本就没有东西要打断）；
+  // 确需打断时移动端多等一会，避开 Android 引擎"停止→朗读"的未就绪窗口。
+  const needsCancel = isSynthBusy() || isSynthPaused();
   if (needsCancel) {
     try { synth.cancel(); } catch (e) { /* 忽略 */ }
   }
   const startDelay = needsCancel ? (TTS_IS_MOBILE ? 220 : 60) : 0;
 
   if (startDelay) {
-    speakChainTimer = setTimeout(() => playChunk(0, false, 0), startDelay);
+    speakChainTimer = setTimeout(() => playChunk(speakIndex, false, 0), startDelay);
   } else {
-    playChunk(0, false, 0);
+    playChunk(speakIndex, false, 0);
   }
+}
+
+// ============================================================
+// 暂停 / 继续
+// 策略：优先用引擎原生 pause()/resume()（**保留朗读位置**）；
+// 实测不可用（部分浏览器 pause() 是空操作）则退回"取消 + 记住块号，
+// 继续时从该块重念"—— 位置会退到块首，但一定有效。
+// 块上限 180 字、结果页通常只有 1 块，所以退回路径的听感损失可以接受。
+// ============================================================
+
+// 原生暂停不可用时的兜底：取消当前朗读并记住块号
+function hardPause() {
+  clearSpeakTimers();
+  speakSeq++;
+  speakArmGuard = null;
+  try { window.speechSynthesis.cancel(); } catch (e) { /* 忽略 */ }
+  setSpeakState('paused');
+}
+
+function pauseSpeaking() {
+  if (speakState !== 'playing') return;
+  setSpeakState('paused');
+  if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
+
+  const synth = window.speechSynthesis;
+  if (nativePauseOk !== false) {
+    try {
+      if (typeof synth.pause === 'function') {
+        synth.pause();
+        // 实测：真的暂停了才算数（部分浏览器 pause() 什么也不做）
+        setTimeout(() => {
+          if (speakState !== 'paused') return;
+          if (isSynthPaused()) { nativePauseOk = true; return; }
+          nativePauseOk = false;
+          hardPause();
+        }, 160);
+        return;
+      }
+    } catch (e) { /* 落到 hardPause */ }
+  }
+  nativePauseOk = false;
+  hardPause();
+}
+
+// 退回路径的"继续"：从记住的块重新播
+function hardResume() {
+  const text = speakText;
+  const sid = speakSourceId;
+  const idx = speakIndex;
+  if (!text) { resetVoiceButton(); return; }
+  speak(text, false, sid, idx);
+}
+
+function resumeSpeaking() {
+  if (speakState !== 'paused') return;
+  const synth = window.speechSynthesis;
+
+  if (nativePauseOk) {
+    try { synth.resume(); } catch (e) { nativePauseOk = false; }
+    setSpeakState('playing');
+    // 复核：若 220ms 后引擎仍处于暂停态，说明 resume() 没生效 → 退回重念
+    setTimeout(() => {
+      if (speakState !== 'playing') return;
+      if (isSynthPaused()) {
+        nativePauseOk = false;
+        hardResume();
+      } else if (speakArmGuard) {
+        speakArmGuard();          // 恢复后把块级兜底重新挂上
+      }
+    }, 220);
+    return;
+  }
+
+  hardResume();
 }
 
 // ===== AI 用药风险预测 =====
@@ -4801,7 +5042,7 @@ async function askAI() {
 
 function speakAIAnswer() {
   if (!aiAnswerText) return;
-  speak(aiAnswerText);
+  speakToggle(aiAnswerText, 'ai');
 }
 
 function startVoiceInput() {
@@ -4942,7 +5183,7 @@ async function fetchDuplicateAi(drug, duplicate) {
 }
 
 function speakDuplicateAi() {
-  if (duplicateAiText) speak(duplicateAiText);
+  if (duplicateAiText) speakToggle(duplicateAiText, 'dup');
 }
 
 // ============================================================
@@ -6142,7 +6383,7 @@ async function sendHelpAlert() {
   // 患者端安抚提示
   showToast('已通知监护人，请保持冷静', 'danger');
   if (typeof speak === 'function') {
-    speak('已经通知您的家人了，请保持冷静，家人马上就来。');
+    speak('已经通知您的家人了，请保持冷静，家人马上就来。', false, 'sos', 0);
   }
 
   if (!getCurrentUser()) {
