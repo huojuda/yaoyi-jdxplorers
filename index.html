@@ -962,6 +962,81 @@ body {
 .history-confirm-body b { color: var(--danger); }
 .history-confirm-actions { padding: 16px 22px 22px; }
 
+/* ===== 语音播报诊断面板（v1.4.2）===== */
+.tts-diag {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 12000;
+  background: var(--card);
+  border: 2px solid var(--info);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 14px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tts-diag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--info);
+}
+.tts-diag-close {
+  font-size: 18px;
+  color: var(--text-light);
+  padding: 0 4px;
+  cursor: pointer;
+}
+.tts-diag-verdict {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  font-weight: 600;
+}
+.tts-diag-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.tts-diag-text {
+  width: 100%;
+  height: 150px;
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.tts-diag-actions { display: flex; gap: 8px; }
+.tts-diag-btn {
+  flex: 1;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.tts-diag-btn.copy {
+  background: linear-gradient(135deg, var(--info) 0%, #0d47a1 100%);
+  color: #fff;
+}
+.tts-diag-btn.ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 2px solid var(--border);
+}
+
 /* ===== Toast ===== */
 .toast {
   position: fixed;
@@ -2162,7 +2237,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.4.1
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.4.2
   </div>
 </div>
 
@@ -4318,21 +4393,10 @@ function ttsErrorMessage(reason) {
 }
 
 // 诊断入口：手机上看不到控制台时，可在页面里执行 __yaoyiTTS() 查看真实状态
-window.__yaoyiTTS = function () {
-  let s = null;
-  try { s = window.speechSynthesis; } catch (e) { /* 忽略 */ }
-  return {
-    supported: ttsSupported(),
-    state: speakState,
-    speaking: !!(s && s.speaking),
-    pending: !!(s && s.pending),
-    paused: !!(s && s.paused),
-    voices: getVoicesSafe().length,
-    nativePauseOk: nativePauseOk,
-    lastError: lastTtsError,
-    mobile: TTS_IS_MOBILE,
-    ua: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : ''
-  };
+// 手机上排查用：__yaoyiTTS() 看结构化诊断，__yaoyiTTSReport() 直接得到可复制的文本
+window.__yaoyiTTS = ttsDiagnostics;
+window.__yaoyiTTSReport = function () {
+  try { return JSON.stringify(ttsDiagnostics(), null, 2); } catch (e) { return '(诊断失败: ' + e + ')'; }
 };
 
 function setDialect(dialect) {
@@ -4471,7 +4535,10 @@ function speakResult() {
 // startIndex = 从第几块开始（暂停后"继续"时用来从当前块重念）。
 function speak(text, silent, sourceId, startIndex) {
   if (!ttsSupported()) {
-    if (!silent) showToast('此设备的浏览器不支持语音播报', 'warning');
+    if (!silent) {
+      showToast('此设备的浏览器不支持语音播报', 'warning');
+      showTtsDiagPanel();   // "不支持"同样要给诊断，否则这条路径无从排查
+    }
     return;
   }
   if (!text) return;
@@ -4492,6 +4559,7 @@ function speak(text, silent, sourceId, startIndex) {
   speakIndex = Math.max(0, Math.min(startIndex | 0, speakChunks.length - 1));
 
   setSpeakState('playing');
+  lastAttemptLog = [];    // 本次播报的尝试记录（诊断用）
 
   let gotAudio = false;   // 是否已确认在出声（onstart 或引擎 busy 都算）
   let dead = false;       // 仅在"确实失败"时置位；兜底不复位它，避免误掐播放
@@ -4504,7 +4572,12 @@ function speak(text, silent, sourceId, startIndex) {
     speakArmGuard = null;
     speakIndex = 0;
     resetVoiceButton();
-    if (errMsg && !silent) showToast(errMsg, 'warning');
+    if (errMsg && !silent) {
+      showToast(errMsg, 'warning');
+      // 弹一次可复制的诊断面板：否则手机上到底发生了什么无从得知，
+      // 只能靠一轮一轮猜（这正是前几轮反复的根因）。
+      showTtsDiagPanel();
+    }
   }
 
   // 块级推进：onend 正常路径与"引擎不报 onend"的兜底路径共用
@@ -4582,17 +4655,32 @@ function speak(text, silent, sourceId, startIndex) {
       }
     }
 
-    if (chosenVoice) utter.voice = chosenVoice;
-    if (chosenLang) utter.lang = chosenLang;
-    utter.rate = rate;
-    utter.pitch = pitch;
+    // 第 1 档（引擎默认）连语速/音调都不设置：有些引擎对非默认的
+    // rate/pitch 也会拒绝，全部交给它自己决定最稳。
+    if (attemptIdx !== 1) {
+      if (chosenVoice) utter.voice = chosenVoice;
+      if (chosenLang) utter.lang = chosenLang;
+      utter.rate = rate;
+      utter.pitch = pitch;
+    }
     utter.volume = 1.0;
+
+    // 记录本次尝试的配置，失败时随诊断面板一起发出来
+    const attemptRec = {
+      attempt: attemptIdx,
+      voice: chosenVoice ? (chosenVoice.name || '?') + ' / ' + (chosenVoice.lang || '?') : '(默认)',
+      lang: chosenLang || '(默认)',
+      customParams: attemptIdx !== 1,
+      result: ''
+    };
+    lastAttemptLog.push(attemptRec);
 
     let settled = false;
 
     utter.onstart = () => {
       if (seq !== speakSeq || settled || dead) return;
       gotAudio = true;
+      attemptRec.result = 'ok';
       setSpeakState('playing');     // 用引擎的真实回调把按钮状态拉回同步
       armChunkGuard();
     };
@@ -4610,6 +4698,7 @@ function speak(text, silent, sourceId, startIndex) {
       settled = true;
       const reason = (e && e.error) ? String(e.error) : '';
       lastTtsError = reason;
+      attemptRec.result = reason || 'unknown';
       try { console.warn('[TTS] error=' + reason + ' attempt=' + attemptIdx + ' lang=' + (chosenLang || '(默认)')); } catch (err) {}
 
       // 主动打断：正常含义是"已被新的播报 / 停止取代"，那些路径自己会接管状态。
@@ -4663,9 +4752,10 @@ function speak(text, silent, sourceId, startIndex) {
         speakWatchdog = null;
         if (seq !== speakSeq || dead) return;
         if (speakState === 'paused') return;
-        if (gotAudio || isSynthBusy() || isSynthPaused()) { gotAudio = true; armChunkGuard(); return; }
+        if (gotAudio || isSynthBusy() || isSynthPaused()) { gotAudio = true; attemptRec.result = 'ok'; armChunkGuard(); return; }
+        if (!attemptRec.result) attemptRec.result = 'no-response';   // 引擎完全没反应
         resetVoiceButton();
-        if (!silent) showToast('语音没有播放，请检查手机是否静音或媒体音量过低', 'warning');
+        if (!silent) { showToast('语音没有播放，请检查手机是否静音或媒体音量过低', 'warning'); showTtsDiagPanel(); }
       }, 4000);
     }
   }
@@ -4677,6 +4767,10 @@ function speak(text, silent, sourceId, startIndex) {
     try { synth.cancel(); } catch (e) { /* 忽略 */ }
   }
   const startDelay = needsCancel ? (TTS_IS_MOBILE ? 220 : 60) : 0;
+
+  // 尽早在用户手势内解锁音频输出：WebView 受自动播放策略约束时，
+  // 音频通道未解锁会让 speak() 直接被拒或静默失败。
+  unlockAudio();
 
   // 就地同步发起（在用户手势内），保证 iOS 等要求"用户手势"的浏览器能放行
   if (startDelay) {
@@ -4697,23 +4791,166 @@ function speak(text, silent, sourceId, startIndex) {
 // 1 个字、音量为 0 的朗读把引擎与语音列表提前唤醒。它不碰任何播放状态，
 // 失败也完全静默，因此不会干扰正常播报。
 // ============================================================
+// ============================================================
+// 引擎预热 + 音频解锁
+//
+// v1.3.3 曾在这里朗读一句「好」(volume=0) 来"唤醒引擎"。这个做法有副作用：
+// 部分引擎会把零音量的 utterance 卡在队列里不触发 onend，于是 isSynthBusy()
+// 长期为真，把后续正常播报推入"先 cancel 再 speak"的路径 —— 反而更容易失败。
+// **真正需要预热的只是"语音列表"**（它是异步加载的、为空时会害我们写上
+// 解析不了的 lang），所以这里只保留 getVoices()，不再朗读哑音。
+//
+// 另外补上「音频输出解锁」：Android WebView / Chrome 受自动播放策略约束时，
+// 音频通道可能整体处于未解锁状态，此时 speechSynthesis.speak() 会被直接拒绝
+// 或静默失败（没有声音也没有错误）。在用户手势里播一个 1 帧的静音 buffer，
+// 可以把音频通道打通。这是本项目此前没有尝试过的一条路径。
+// ============================================================
 let ttsWarmedUp = false;
+let audioUnlocked = false;
+let sharedAudioCtx = null;
+
+function unlockAudio() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    if (!sharedAudioCtx) sharedAudioCtx = new AC();
+    const ctx = sharedAudioCtx;
+    if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      try { ctx.resume(); } catch (e) {}
+    }
+    if (audioUnlocked) return true;
+    const buf = ctx.createBuffer(1, 1, 22050);      // 1 帧静音，听不见
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+    audioUnlocked = true;
+    return true;
+  } catch (e) {
+    return false;                                   // 不支持就算了，绝不影响主流程
+  }
+}
+
 function warmUpTts() {
   if (ttsWarmedUp) return;
   ttsWarmedUp = true;
   try {
     if (!ttsSupported()) return;
-    const synth = window.speechSynthesis;
-    synth.getVoices();                                  // 触发语音列表异步加载
-    // 正在播报/已暂停时不要插队（防御性判断，正常不会发生）
-    if (speakState !== 'idle' || isSynthBusy() || isSynthPaused()) return;
-    const u = new SpeechSynthesisUtterance('好');
-    u.volume = 0;                                       // 静音：只为唤醒引擎，不出声
-    u.rate = 1.0;
-    u.pitch = 1.0;
-    u.onerror = () => { /* 预热失败无所谓，保持静默 */ };
-    synth.speak(u);
+    window.speechSynthesis.getVoices();             // 触发语音列表异步加载（唯一需要预热的东西）
   } catch (e) { /* 预热永远不抛给调用方 */ }
+  unlockAudio();                                    // 顺手解锁音频输出
+}
+
+// ============================================================
+// 诊断：把"到底为什么不出声"变成可读、可复制的数据
+//
+// 前面几轮修复之所以来回反复，根因是**无法在手机上观测**。这里让应用自己
+// 把引擎状态、语音列表、每次尝试的配置与结果都收集起来：
+//   · 失败时自动弹出一次可复制的诊断面板；
+//   · 用户点「复制诊断信息」即可把结果直接发给开发者。
+// ============================================================
+let lastAttemptLog = [];   // 本次播报尝试过的配置与各自结果
+
+function ttsDiagnostics() {
+  let s = null;
+  try { s = window.speechSynthesis; } catch (e) { /* 忽略 */ }
+  let voices = [];
+  try {
+    voices = getVoicesSafe().map(v => {
+      const ls = (v.localService === false) ? '网络' : '本地';
+      return (v.lang || '?') + ' | ' + (v.name || '?') + ' | ' + ls;
+    });
+  } catch (e) { /* 忽略 */ }
+  return {
+    ua: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '',
+    inWeChat: /MicroMessenger/i.test((typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : ''),
+    supported: ttsSupported(),
+    state: speakState,
+    speaking: !!(s && s.speaking),
+    pending: !!(s && s.pending),
+    paused: !!(s && s.paused),
+    voicesCount: voices.length,
+    voices: voices,
+    nativePauseOk: nativePauseOk,
+    warmedUp: ttsWarmedUp,
+    audioApi: !!(window.AudioContext || window.webkitAudioContext),
+    audioUnlocked: audioUnlocked,
+    audioState: sharedAudioCtx ? sharedAudioCtx.state : '(未创建)',
+    lastError: lastTtsError,
+    attempts: lastAttemptLog.slice()
+  };
+}
+
+// 把诊断数据翻译成一句人话结论
+function ttsVerdict(d) {
+  if (!d.supported) {
+    return '本设备的浏览器没有提供语音合成接口（speechSynthesis），网页无法朗读。';
+  }
+  if (d.voicesCount === 0) {
+    return '系统没有向浏览器提供任何语音音色（语音列表为空）。通常是手机的「文字转语音(TTS)」引擎未安装或未启用。';
+  }
+  const results = (d.attempts || []).map(a => a.result).filter(Boolean);
+  if (results.indexOf('language-unavailable') >= 0 || results.indexOf('voice-unavailable') >= 0) {
+    return '系统里没有与所选语言匹配的可用音色（语言/音色解析失败）。';
+  }
+  if (results.length && results.every(r => r && r !== 'ok' && r !== 'no-response')) {
+    return '所有候选配置都被语音引擎拒绝，具体错误码见下方 attempts。';
+  }
+  if (!d.speaking && !d.pending) {
+    return '语音引擎没有接单：speak() 之后既不播放也不排队，常见于浏览器/WebView 未开放音频输出。';
+  }
+  return '未能在本设备上启动朗读，详见下方诊断数据。';
+}
+
+// 失败时展示一次可复制的诊断面板（一次会话只弹一次，不打扰）
+let ttsDiagShown = false;
+function showTtsDiagPanel() {
+  try {
+    if (ttsDiagShown) return;
+    if (document.getElementById('tts-diag')) return;
+    ttsDiagShown = true;
+    const d = ttsDiagnostics();
+    const wrap = document.createElement('div');
+    wrap.id = 'tts-diag';
+    wrap.className = 'tts-diag';
+    const ta = document.createElement('textarea');
+    ta.className = 'tts-diag-text';
+    ta.readOnly = true;
+    ta.value = JSON.stringify(d, null, 2);
+    wrap.innerHTML =
+      '<div class="tts-diag-head"><span>🔍 语音播报诊断</span>'
+      + '<span class="tts-diag-close" role="button">✕</span></div>'
+      + '<div class="tts-diag-verdict"></div>'
+      + '<div class="tts-diag-hint">把下面这段信息复制发给开发者，就能定位到底是哪种原因。</div>';
+    wrap.querySelector('.tts-diag-verdict').textContent = ttsVerdict(d);
+    wrap.appendChild(ta);
+    const bar = document.createElement('div');
+    bar.className = 'tts-diag-actions';
+    bar.innerHTML = '<button type="button" class="tts-diag-btn copy">复制诊断信息</button>'
+      + '<button type="button" class="tts-diag-btn ghost">关闭</button>';
+    wrap.appendChild(bar);
+    document.body.appendChild(wrap);
+    wrap.querySelector('.tts-diag-close').addEventListener('click', function () {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    });
+    bar.querySelector('.ghost').addEventListener('click', function () {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    });
+    bar.querySelector('.copy').addEventListener('click', function () {
+      const text = JSON.stringify(d, null, 2);
+      const done = function () {
+        wrap.querySelector('.tts-diag-hint').textContent = '已复制 ✅ 直接粘贴发给开发者即可。';
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { ta.select(); done(); });
+          return;
+        }
+      } catch (e) { /* 落到下面的手动选择 */ }
+      try { ta.focus(); ta.select(); } catch (e) {}
+      done();
+    });
+  } catch (e) { /* 诊断面板本身绝不影响主流程 */ }
 }
 
 // ============================================================
