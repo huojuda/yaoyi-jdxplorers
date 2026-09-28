@@ -2237,7 +2237,7 @@ body {
 
   <div class="disclaimer">
     本工具仅供参考，不替代医生诊断<br>
-    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.4.2
+    用药请遵医嘱 · 药忆 JDXplorers 参赛原型 · v1.4.3
   </div>
 </div>
 
@@ -4191,6 +4191,8 @@ function renderResult(drug) {
   // 新一轮识别结果 → 停掉并复位上一轮的播报状态，避免按钮停留在
   // "暂停播报/继续播报"这类上一轮遗留的文案上（界面状态与识别流程同步）。
   try { stopSpeaking(); } catch (e) { /* 初始化早期忽略 */ }
+  // 换了一个药品，给预生成音频通道一次重试机会（上次失败可能只是那个文件的问题）
+  prerenderedAudioBroken = false;
 
   document.getElementById('result-drug-name').textContent = drug.name;
   document.getElementById('result-drug-class').textContent = drug.plain_class + '（' + drug.brand_names.join(' / ') + '）';
@@ -4463,6 +4465,7 @@ function resetVoiceButton() {
   speakState = 'idle';
   isSpeaking = false;
   speakArmGuard = null;
+  speakEngine = 'none';
   const btn = voiceButtonEl();
   if (!btn) return;
   btn.classList.remove('speaking');
@@ -4485,9 +4488,73 @@ function stopSpeaking() {
     const s = window.speechSynthesis;
     if (s && (s.speaking || s.pending || s.paused)) s.cancel();
   } catch (e) { /* 无 TTS 环境忽略 */ }
+  // 预生成音频通道也要停：先摘掉回调，避免 pause() 触发 onpause 把状态又改回去
+  try {
+    if (ttsAudioEl) {
+      ttsAudioEl.onplay = ttsAudioEl.onpause = ttsAudioEl.onended = ttsAudioEl.onerror = null;
+      ttsAudioEl.pause();
+    }
+  } catch (e) { /* 忽略 */ }
   speakIndex = 0;
   resetVoiceButton();
 }
+
+// >>> PRERENDERED_TTS_AUTO_GENERATED (由 .workbuddy/write_tts_manifest.py 生成，勿手改)
+// 预生成播报音频：把「用药指导」这段固定话术在本地用 Windows SAPI 合成 MP3，
+// 随站点一起托管。命中时直接播音频，**完全不依赖手机的系统 TTS** ——
+// 这是华为等"网页拿不到任何 TTS 音色"机型唯一能出声的办法。
+// 值 = [音频相对路径, 文本指纹]；指纹不匹配说明话术已改，自动退回系统 TTS。
+const PRERENDERED_TTS = {
+  donepezil: ["tts/tts_donepezil.mp3", "8e9057bc"],
+  memantine: ["tts/tts_memantine.mp3", "f1edd962"],
+  rivastigmine: ["tts/tts_rivastigmine.mp3", "4badec01"],
+  oligomannate: ["tts/tts_oligomannate.mp3", "cf26927c"],
+  amlodipine: ["tts/tts_amlodipine.mp3", "e79c9b55"],
+  metformin: ["tts/tts_metformin.mp3", "18fdcb96"],
+  atorvastatin: ["tts/tts_atorvastatin.mp3", "d833e9b7"],
+  aspirin: ["tts/tts_aspirin.mp3", "dbd31675"],
+  omeprazole: ["tts/tts_omeprazole.mp3", "ea9f9b81"],
+  ibuprofen: ["tts/tts_ibuprofen.mp3", "3cbe397"],
+  valsartan: ["tts/tts_valsartan.mp3", "b3ef79c4"],
+  metoprolol: ["tts/tts_metoprolol.mp3", "a433e978"],
+  glimepiride: ["tts/tts_glimepiride.mp3", "e89d406b"],
+  clopidogrel: ["tts/tts_clopidogrel.mp3", "857f84e6"],
+  paracetamol: ["tts/tts_paracetamol.mp3", "c0b12246"],
+  zopiclone: ["tts/tts_zopiclone.mp3", "99234896"],
+  irbesartan: ["tts/tts_irbesartan.mp3", "7918d17d"],
+  nifedipine: ["tts/tts_nifedipine.mp3", "655efaef"],
+  gliclazide: ["tts/tts_gliclazide.mp3", "1afba7e3"],
+  rosuvastatin: ["tts/tts_rosuvastatin.mp3", "3001d68f"],
+  warfarin: ["tts/tts_warfarin.mp3", "b900a295"],
+  domperidone: ["tts/tts_domperidone.mp3", "86ce63b8"],
+  dexzopiclone: ["tts/tts_dexzopiclone.mp3", "30b9ea3f"],
+  calcium_d3: ["tts/tts_calcium_d3.mp3", "be093f29"],
+  telmisartan: ["tts/tts_telmisartan.mp3", "7b17fbd3"],
+  perindopril: ["tts/tts_perindopril.mp3", "6f9c670b"],
+  furosemide: ["tts/tts_furosemide.mp3", "ef482dd"],
+  spironolactone: ["tts/tts_spironolactone.mp3", "6d40447a"],
+  hydrochlorothiazide: ["tts/tts_hydrochlorothiazide.mp3", "80fed564"],
+  acarbose: ["tts/tts_acarbose.mp3", "b041a599"],
+  repaglinide: ["tts/tts_repaglinide.mp3", "ec4ac406"],
+  dapagliflozin: ["tts/tts_dapagliflozin.mp3", "b2040e9d"],
+  simvastatin: ["tts/tts_simvastatin.mp3", "118e7eed"],
+  fenofibrate: ["tts/tts_fenofibrate.mp3", "1752224b"],
+  rabeprazole: ["tts/tts_rabeprazole.mp3", "e464ce1a"],
+  pantoprazole: ["tts/tts_pantoprazole.mp3", "66698905"],
+  hydrotalcite: ["tts/tts_hydrotalcite.mp3", "3a3d596a"],
+  mosapride: ["tts/tts_mosapride.mp3", "b35187bf"],
+  celecoxib: ["tts/tts_celecoxib.mp3", "594c9a73"],
+  alendronate: ["tts/tts_alendronate.mp3", "9877223c"],
+  calcitriol: ["tts/tts_calcitriol.mp3", "80a2a1fe"],
+  tamsulosin: ["tts/tts_tamsulosin.mp3", "2950107e"],
+  finasteride: ["tts/tts_finasteride.mp3", "82716642"],
+  nitroglycerin: ["tts/tts_nitroglycerin.mp3", "4ce586eb"],
+  isosorbide_mononitrate: ["tts/tts_isosorbide_mononitrate.mp3", "76d174dc"],
+  trimetazidine: ["tts/tts_trimetazidine.mp3", "a9298368"],
+  mecobalamin: ["tts/tts_mecobalamin.mp3", "3ca09e3e"],
+  ginkgo_biloba: ["tts/tts_ginkgo_biloba.mp3", "bf85418a"],
+};
+// <<< PRERENDERED_TTS_AUTO_GENERATED
 
 // 结果页播放文案（点击播报与自动播报共用）
 function buildSpeakText(drug) {
@@ -4497,6 +4564,104 @@ function buildSpeakText(drug) {
     + drug.meal_relation + '。'
     + '需要注意：' + drug.contraindication + '。'
     + drug.elderly_explanation;
+}
+
+// ============================================================
+// 预生成语音：不依赖系统 TTS 的播报通道（v1.4.3）
+//
+// 为什么需要它：部分手机的浏览器**根本拿不到任何 TTS 音色**
+// （实测：华为自带浏览器 voicesCount=0，三次 speak() 全部 synthesis-failed），
+// 这种设备上任何基于 speechSynthesis 的写法都不可能出声。
+//
+// 做法：把「用药指导」这段**固定话术**（全部字段来自内置药品库）在本地用
+// Windows SAPI 合成 MP3 随站点托管；命中时直接播放音频文件。
+//   · 覆盖面：不受系统 TTS 影响 → 所有手机都能出声；
+//   · 音质：本地合成一次，比在手机上现合成更稳定；
+//   · 暂停/继续：原生 audio 的 pause()/play() 天然保留播放位置，比 TTS 可靠；
+//   · 体积：每次只加载当前这一个药品的音频（约 150KB）。
+// 未命中（AI 问答、重复用药提醒等动态文本）仍走系统 TTS，失败时给出诊断。
+// ============================================================
+let speakEngine = 'none';     // 'none' | 'tts' | 'audio'
+let ttsAudioEl = null;
+// 预生成音频实测不可用（文件缺失 / 被自动播放策略拒绝）→ 本次识别内不再重试。
+// 否则每次点击都会先试音频、失败后再退回 TTS，把"暂停/继续"的语义冲掉
+// （表现为：点第二下不是暂停，而是从头重念）。
+let prerenderedAudioBroken = false;
+
+// 与 .workbuddy/write_tts_manifest.py 里的 text_hash() 必须完全一致：
+// UTF-16 码元 + FNV-1a 32 位。指纹不一致说明话术改过，就退回系统 TTS，
+// 避免"念的和屏幕上显示的不一样"。
+function ttsTextHash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(16);
+}
+
+// 命中则返回音频地址，否则返回空串
+function prerenderedTtsUrl(drug) {
+  try {
+    if (prerenderedAudioBroken) return '';       // 本会话已证明不可用，别再试
+    if (!drug || !drug.id) return '';
+    const rec = PRERENDERED_TTS[drug.id];
+    if (!rec || !rec[0]) return '';
+    if (rec[1] !== ttsTextHash(buildSpeakText(drug))) return '';   // 文本已变 → 不用旧音频
+    return rec[0];
+  } catch (e) { return ''; }
+}
+
+// 当前是否真的在出声（区分"状态是 playing"与"引擎确实在忙"）
+function isVoiceActive() {
+  if (speakEngine === 'audio') {
+    try { return !!(ttsAudioEl && !ttsAudioEl.paused && !ttsAudioEl.ended); } catch (e) { return false; }
+  }
+  return isSynthBusy() || isSynthPaused();
+}
+
+// 播放预生成音频。失败（文件缺失/自动播放被拦）时**自动退回系统 TTS**，
+// 保证"点了就有反应"这条底线不破。
+function playPrerenderedVoice(url, sourceId) {
+  stopSpeaking();                       // 先清掉可能正在跑的 TTS
+  try {
+    if (!ttsAudioEl) {
+      ttsAudioEl = new Audio();
+      ttsAudioEl.preload = 'auto';
+      ttsAudioEl.setAttribute('playsinline', '');
+    }
+    const el = ttsAudioEl;
+    speakEngine = 'audio';
+    speakSourceId = sourceId || 'result';
+    speakText = currentDrug ? buildSpeakText(currentDrug) : speakText;
+    lastTtsError = '';
+
+    const fallbackToTts = (why) => {
+      if (speakEngine !== 'audio') return;
+      speakEngine = 'none';
+      prerenderedAudioBroken = true;      // 记住：别再重复试音频，直接走 TTS
+      lastTtsError = why;
+      try { console.warn('[voice] 预生成音频不可用，退回系统 TTS：' + why); } catch (e) {}
+      const text = speakText;
+      if (text) speakToggle(text, false, speakSourceId);
+      else resetVoiceButton();
+    };
+
+    el.onplay = () => { if (speakEngine === 'audio') setSpeakState('playing'); };
+    el.onpause = () => { if (speakEngine === 'audio' && !el.ended) setSpeakState('paused'); };
+    el.onended = () => { if (speakEngine === 'audio') resetVoiceButton(); };
+    el.onerror = () => fallbackToTts('audio-load-failed:' + (el.error && el.error.code));
+
+    setSpeakState('playing');           // 先给反馈，避免等待加载时"没反应"
+    el.src = url;
+    const p = el.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(err => fallbackToTts('audio-play-rejected:' + (err && err.name)));
+    }
+  } catch (e) {
+    lastTtsError = 'audio-init-failed';
+    resetVoiceButton();
+  }
 }
 
 // ---- 点击即暂停/继续 ----
@@ -4512,7 +4677,7 @@ function speakToggle(text, sourceId) {
     if (speakState === 'playing') {
       // 状态可能与实际播放不同步（播报被系统/其他页面打断时不会回调我们）：
       // 只有引擎确实还在忙，点击才算"暂停"；否则视为"接着播"，避免点了没反应。
-      if (isSynthBusy() || isSynthPaused()) { pauseSpeaking(); return; }
+      if (isVoiceActive()) { pauseSpeaking(); return; }
       speak(text, false, sourceId, speakIndex);
       return;
     }
@@ -4526,6 +4691,17 @@ function speakResult() {
     showToast('暂无可播报的药品信息', 'warning');
     return;
   }
+  // ★ 先判点击语义，再决定用哪条通道。
+  //   否则会出现：点击时先 stopSpeaking 停掉正在播的内容，再去试音频，
+  //   失败后才退回 TTS —— 结果"点第二下"变成从头重念，而不是暂停。
+  //   这里与通道无关：只要按钮处于"正在播/已暂停"，点击就先当暂停/继续处理。
+  if (speakSourceId === 'result') {
+    if (speakState === 'paused') { resumeSpeaking(); return; }
+    if (speakState === 'playing' && isVoiceActive()) { pauseSpeaking(); return; }
+  }
+  // ★ 优先用预生成音频：不依赖手机的系统 TTS，所有机型都能出声
+  const url = prerenderedTtsUrl(currentDrug);
+  if (url) { playPrerenderedVoice(url, 'result'); return; }
   speakToggle(buildSpeakText(currentDrug), 'result');
 }
 
@@ -4865,6 +5041,8 @@ function ttsDiagnostics() {
     ua: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '',
     inWeChat: /MicroMessenger/i.test((typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : ''),
     supported: ttsSupported(),
+    engine: speakEngine,                              // 'audio'=预生成音频 / 'tts'=系统语音
+    prerenderedReady: Object.keys(PRERENDERED_TTS || {}).length,
     state: speakState,
     speaking: !!(s && s.speaking),
     pending: !!(s && s.pending),
@@ -4972,6 +5150,12 @@ function hardPause() {
 
 function pauseSpeaking() {
   if (speakState !== 'playing') return;
+  // 预生成音频：原生 pause() 天然保留播放位置，无需任何兜底
+  if (speakEngine === 'audio') {
+    try { ttsAudioEl.pause(); } catch (e) { resetVoiceButton(); return; }
+    setSpeakState('paused');
+    return;
+  }
   setSpeakState('paused');
   if (speakWatchdog) { clearTimeout(speakWatchdog); speakWatchdog = null; }
 
@@ -5006,6 +5190,14 @@ function hardResume() {
 
 function resumeSpeaking() {
   if (speakState !== 'paused') return;
+  if (speakEngine === 'audio') {
+    try {
+      const p = ttsAudioEl.play();
+      if (p && typeof p.catch === 'function') p.catch(() => resetVoiceButton());
+    } catch (e) { resetVoiceButton(); return; }
+    setSpeakState('playing');
+    return;
+  }
   const synth = window.speechSynthesis;
 
   if (nativePauseOk) {
