@@ -1,0 +1,39 @@
+{
+  "platform": "火山引擎方舟 (Volcano Ark)",
+  "api_endpoint": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+  "models_endpoint": "https://ark.cn-beijing.volces.com/api/v3/models",
+  "api_key": "<在 EdgeOne 环境变量 YAOWI_API_KEY 中配置，勿写入文件>",
+  "account_id": "<你的火山引擎账号 ID，登录控制台右上角可见>",
+  "primary_model": {
+    "id": "doubao-seed-2-0-mini-260428",
+    "name": "Doubao-Seed-2.0-mini",
+    "status": "可用",
+    "free_tokens": 500000,
+    "price_input": "0.0002元/千token",
+    "recommended": true,
+    "reason": "便宜、快、药盒识别100%准确，完全够用"
+  },
+  "backup_models": [
+    {
+      "id": "doubao-seed-2-1-turbo-260628",
+      "name": "Doubao-Seed-2.1-turbo",
+      "status": "可用",
+      "free_tokens": 500000,
+      "note": "更强但token消耗大约3倍，非必要不用"
+    },
+    {
+      "id": "doubao-seed-2-0-mini-260215",
+      "name": "Doubao-Seed-2.0-mini(旧版)",
+      "status": "可用",
+      "note": "备选"
+    }
+  ],
+  "recognition_prompt": "你是一个专业的药品识别助手。请仔细识别这张药品包装图片，提取以下信息并以严格的JSON格式返回：{\"drug_name\": \"药品通用名（中文）\", \"brand_name\": \"商品名\", \"specification\": \"规格\", \"frequency\": \"服用频次\", \"timing\": \"服用时间\", \"meal_relation\": \"餐前/餐后/空腹/不限\", \"contraindication\": \"主要禁忌（一句话）\", \"confidence\": 0.0}。如果图片中无法确定某个字段，填\"未识别\"。只返回JSON，不要其他文字。",
+  "test_results": {
+    "donepezil": "盐酸多奈哌齐片 / 安理申 / 5mg×7片 ✅",
+    "metformin": "盐酸二甲双胍片 / 格华止 / 0.5g×30片 ✅",
+    "aspirin": "阿司匹林肠溶片 / 拜阿司匹灵 / 100mg×30片 ✅"
+  },
+  "note": "脱敏模板，可安全公开。真实密钥只放在 EdgeOne 环境变量里。",
+  "_说明": "本文件是脱敏模板，供重建环境时参考字段结构，不含任何真实密钥。"
+}

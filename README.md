@@ -4,6 +4,17 @@
 > 面向阿尔茨海默症患者的 AI 拍照用药与家属远程守护应用
 > 版本 v1.4.0・已上线腾讯 EdgeOne Pages
 
+> **本仓库是项目的唯一恢复来源。** 本地文件全部丢失时，仅凭本仓库即可重建完整的
+> 代码、文档、工具与媒体资源 —— 见 [RESTORE.md](RESTORE.md)。
+>
+> 最短路径：
+>
+> ```bash
+> git clone https://github.com/huojuda/yaoyi-jdxplorers.git
+> cd yaoyi-jdxplorers
+> python media/fetch_media.py      # 拉取 552.8 MB 视频/图片素材并校验
+> ```
+
 
 
 ***
@@ -194,63 +205,80 @@
 
 ## 六、目录结构
 
-
+本仓库同时是**站点根目录**和**唯一恢复源**。站点运行所需的文件在根目录，
+开发文档、工具脚本、媒体清单分目录存放。
 
 ```
-药忆-H5原型/
-
-├── index.html                  # 单文件 SPA（前端全部逻辑，约 6000 行）
-
-├── manifest.json               # PWA 应用清单
-
-├── sw.js                       # Service Worker（已启用注册，导航网络优先+离线回退）
-
-├── server.py                   # 本地开发服务器（镜像全部 Edge Function API）
-
-├── edge-functions/
-
-│   └── api/
-
-│       ├── auth.js             # 账号：注册/登录/密码重置/注销/会话/诊断
-
-│       ├── recognize.js        # 药盒识别：火山方舟多模态，POST 直传 + GET 分片兜底
-
-│       ├── ask.js              # AI：用药问答(qa)/联合用药分析(analyze)/防重复话术(duplicate)
-
-│       ├── relation.js         # 家属绑定：8 位绑定码 gen/bind/list/unbind + 失败锁定
-
-│       ├── events.js           # 事件流：服药/求助/监视结束上报 + 家属轮询聚合
-
-│       └── pair.js             # 配对码（旧版兼容，create/verify）
-
+yaoyi-jdxplorers/                  ← 仓库根 = EdgeOne 站点根
+│
+├── index.html                     # 单文件 SPA，整个前端（253,803 字符 / 7,781 行）
+├── manifest.json                  # PWA 应用清单（图标内联 data-URI）
+├── sw.js                          # Service Worker（导航网络优先 + 离线回退）
+├── tts/                           # 48 个预渲染语音 mp3（6.9 MB，唯一发声手段）
+├── edge-functions/api/            # 5 个在用边缘函数 + 1 个废弃
+│   ├── auth.js                    # 账号：注册/登录/会话/重置/注销
+│   ├── recognize.js               # 药盒识别：方舟多模态，POST 直传 + GET 分片兜底
+│   ├── ask.js                     # AI：问答(qa) / 联合用药(analyze) / 防重复(duplicate)
+│   ├── relation.js                # 家属绑定：8 位绑定码，120 秒 TTL
+│   ├── events.js                  # 事件流：上报 + 家属 3 秒轮询
+│   └── pair.js                    # 【已废弃】被 relation.js 取代，前端零调用
+│
+├── docs/                          # 项目文档（7 篇）
+│   ├── 功能介绍.md                 # 10 个模块 + 真实/演示对照表（最准的功能底稿）
+│   ├── 服药历史删除-实现说明.md
+│   ├── 部署手册.md                 # EdgeOne 部署全流程
+│   ├── 部署核对清单.md
+│   ├── 宣传视频-分镜头脚本v4.md
+│   ├── 宣传视频-制作标准.md
+│   └── 密钥治理报告.md             # 密钥收敛、清除、上线核验全过程
+│
+├── tools/                         # 开发与部署脚本（8 个，全为 Python 标准库）
+│   ├── gen_tts_audio.py           # 【关键】改话术后重新生成 48 个 mp3
+│   ├── write_tts_manifest.py      # 写 PRERENDERED_TTS 清单与文本指纹
+│   ├── analyze_yaoyi.py           # 从 index.html 现查药品/规则/音频/存储键规模
+│   ├── deploy_via_gitdata.py      # 部署站点（走 Git Data API，不依赖 github.com）
+│   ├── push_file_via_gitdata.py   # 推单个非站点文件（如 .gitignore）
+│   ├── sync_local_to_remote.py    # 无法 fetch 时按内容寻址对齐本地引用
+│   ├── build_submission_package.py# 按白名单构建提交包
+│   └── gen_history_delete_doc.py  # 从 index.html 按锚点抽取实现说明
+│
+├── config/
+│   └── api_config.example.json    # 脱敏配置模板（真实密钥只在 EdgeOne 环境变量）
+│
+├── media/                         # 媒体资源（本体在 Release，清单和下载器在仓库）
+│   ├── MANIFEST.json              # 16 个资产的 sha256 + 下载地址 + 原始路径
+│   ├── fetch_media.py             # 一键下载并逐字节校验
+│   └── README.md                  # 媒体存放策略说明
+│
+├── RESTORE.md                     # 【从零恢复手册】删光本地后照此重建
 ├── .gitignore
-
-└── README.md                   # 本文件
+└── README.md                      # 本文件
 ```
 
-> **API 密钥管理**
->
-> ：
->
-> `api_config.json`
->
->  位于项目上级目录，仅 
->
-> `server.py`
->
->  本地开发时读取；线上 EdgeOne Pages 通过环境变量 
->
-> `YAOWI_API_KEY`
->
->  / 
->
-> `YAOWI_API_ENDPOINT`
->
->  / 
->
-> `YAOWI_MODEL_ID`
->
->  注入，前端代码中不含任何密钥。
+### 为什么媒体不在 git 里
+
+GitHub 对单个文件有 **100 MB 硬限制**，而 `镜头8.mp4` 是 120.9 MB；16 个媒体资产合计
+552.8 MB，直接入库会让每次 `git clone` 都要拉半 GB，且以后再也删不掉（历史永久保留）。
+
+所以采取**代码入 git、媒体入 Release** 的分层策略：
+
+| 资源 | 存放位置 | 获取方式 |
+|---|---|---|
+| 站点代码（index.html / sw.js / manifest.json） | git 仓库 | `git clone` |
+| 边缘函数（6 个 js） | git 仓库 | `git clone` |
+| 预渲染语音（48 个 mp3，6.9 MB） | git 仓库 | `git clone`，同时也从站点直接可取 |
+| 文档与工具脚本 | git 仓库 | `git clone` |
+| 视频与图片素材（552.8 MB） | **GitHub Release `media-v1`** | `python media/fetch_media.py` |
+
+Release 挂在本仓库下（`/releases/tag/media-v1`），所以**仓库仍是唯一恢复来源** ——
+不需要另找网盘或第三方存储。
+
+### API 密钥管理
+
+`config/api_config.example.json` 是**脱敏模板**，只保留端点、模型 ID、提示词等非密钥字段。
+
+真实密钥只存在于 **EdgeOne 环境变量** `YAOWI_API_KEY` / `YAOWI_API_ENDPOINT` / `YAOWI_MODEL_ID`，
+本地不保存明文副本，前端代码中也不含任何密钥。本地开发时按同名环境变量注入即可。
 
 
 

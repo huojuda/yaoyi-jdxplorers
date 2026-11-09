@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>药忆 v1.4.0 流程图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f7fa;
+    color: #1a1a1a;
+    padding: 24px;
+  }
+  .tabs {
+    display: flex; gap: 12px; margin-bottom: 24px; justify-content: center;
+  }
+  .tab {
+    padding: 10px 28px; border-radius: 24px; cursor: pointer;
+    background: #fff; border: 2px solid #d0d7e2; font-size: 15px; font-weight: 600;
+    transition: all .2s;
+  }
+  .tab.active { background: #4A90D9; color: #fff; border-color: #4A90D9; }
+  .diagram { display: none; max-width: 1100px; margin: 0 auto; }
+  .diagram.active { display: block; }
+
+  .group {
+    border-radius: 16px; padding: 20px 24px 24px; margin-bottom: 0;
+    position: relative;
+  }
+  .group-blue { background: #EAF2FB; border: 1.5px solid #C5D9F0; }
+  .group-green { background: #EAF6EC; border: 1.5px solid #BFE0C5; }
+  .group-orange { background: #FBF3E4; border: 1.5px solid #EBD3A3; }
+
+  .group-title {
+    font-size: 17px; font-weight: 700; margin-bottom: 16px;
+  }
+  .group-blue .group-title { color: #2c5f9e; }
+  .group-green .group-title { color: #3a7d44; }
+  .group-orange .group-title { color: #9a6b2a; }
+
+  .row {
+    display: flex; align-items: stretch; gap: 0;
+  }
+  .box {
+    flex: 1; background: #fff; border-radius: 10px; padding: 14px 12px;
+    text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .box-main { font-size: 16px; font-weight: 700; color: #222; line-height: 1.4; }
+  .box-sub { font-size: 12.5px; color: #666; margin-top: 5px; line-height: 1.5; }
+  .arrow-r {
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; flex-shrink: 0; color: #8aa4c4; font-size: 20px; font-weight: 700;
+  }
+  .arrow-down {
+    text-align: center; padding: 10px 0; color: #8899aa; font-size: 13px;
+    position: relative;
+  }
+  .arrow-down::after {
+    content: "↓"; display: block; font-size: 18px; margin-top: 2px; color: #8aa4c4;
+  }
+  .arrow-down.green::after { color: #6ABF73; }
+  .arrow-down.orange::after { color: #D4A24C; }
+
+  .badge {
+    display: inline-block; background: #4A90D9; color: #fff; font-size: 11px;
+    padding: 2px 8px; border-radius: 10px; margin-left: 4px; vertical-align: middle;
+  }
+  .badge-new { background: #E53935; }
+  .badge-fix { background: #FB8C00; }
+
+  h1 { text-align: center; font-size: 22px; margin-bottom: 6px; color: #2c5f9e; }
+  .subtitle { text-align: center; font-size: 13px; color: #888; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+
+<h1>药忆 v1.4.0 系统流程图</h1>
+<p class="subtitle">更新日期：2026-09 · 红色角标=v1.4.0 新增，橙色角标=v1.4.0 修正</p>
+
+<div class="tabs">
+  <div class="tab active" onclick="show(0)">业务逻辑链</div>
+  <div class="tab" onclick="show(1)">技术路线图</div>
+</div>
+
+<!-- ========== 图1：业务逻辑链 ========== -->
+<div class="diagram active" id="d0">
+
+  <!-- 01 身份与会话 -->
+  <div class="group group-blue">
+    <div class="group-title">01 身份与会话</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">注册 / 登录</div>
+        <div class="box-sub">手机号登录，双角色（患者/家属）<br>敏感操作一律 POST</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">会话令牌</div>
+        <div class="box-sub">加盐哈希（PBKDF2），7 天有效<br>登录失败 5 次锁 10 分钟</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">密码重置<span class="badge badge-new">新增</span></div>
+        <div class="box-sub">6 位短信验证码（5 分钟有效）<br>60 秒冷却 · 每小时 5 次 · 错 5 次作废</div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down">登录后进入首页</div>
+
+  <!-- 02 取像与识别 -->
+  <div class="group group-blue">
+    <div class="group-title">02 取像与识别</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">拍照 / 相册</div>
+        <div class="box-sub">后置摄像头实时取景<br>不可用时降级相册选择</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">图像智能压缩</div>
+        <div class="box-sub">缩至 1280px，逐步降质量<br>确保 base64 ≤ 700KB</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">双通道识别<span class="badge badge-new">新增</span></div>
+        <div class="box-sub">POST 直传 → 失败自动切 GET 分片<br>火山方舟多模态大模型</div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down">识别返回药品名</div>
+
+  <!-- 03 匹配与播报 -->
+  <div class="group group-blue">
+    <div class="group-title">03 匹配与播报</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">三级匹配药品库<span class="badge badge-new">新增</span></div>
+        <div class="box-sub">精确 → 包含 → 商品名匹配<br>50 种老年常用药，未收录不编造</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">四问式卡片</div>
+        <div class="box-sub">次数 · 时间 · 餐次 · 禁忌<br>专业术语翻成大白话</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">语音播报</div>
+        <div class="box-sub">0.8 倍慢速语音<br>预渲染音频优先播放</div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down">确认服药后落库</div>
+
+  <!-- 04 安全与留痕 -->
+  <div class="group group-blue">
+    <div class="group-title">04 安全与留痕</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">防重复服药（双层）</div>
+        <div class="box-sub">本地红色震动警告即时拦截<span class="badge badge-fix">不依赖网络</span><br>+ AI 温和话术异步补充<span class="badge badge-new">新增</span></div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">冲突预警（双通道）</div>
+        <div class="box-sub"><b>40 条</b>内置规则即时速查<span class="badge badge-fix">修正</span>（离线可用）<br>+ 大模型深度分析（异步、缓存 7 天）</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">AI 用药问答<span class="badge badge-new">新增</span></div>
+        <div class="box-sub">结果页直接提问，大白话回答<br>涉及剂量自动建议咨询医生</div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down">事件流同步家属端</div>
+
+  <!-- 05 家属守护 -->
+  <div class="group group-green">
+    <div class="group-title">05 家属守护</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">8 位绑定码<span class="badge badge-fix">修正</span></div>
+        <div class="box-sub">/api/relation · 120 秒有效<br>连续错 5 次锁 5 分钟</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">事件轮询</div>
+        <div class="box-sub">每 3 秒拉取一次<br>服药 / 求助 / 监视结束</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">日报与求助</div>
+        <div class="box-sub">周报 · 一键呼叫<br>服药后 30 分钟监视期<span class="badge badge-new">新增</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========== 图2：技术路线图 ========== -->
+<div class="diagram" id="d1">
+
+  <!-- 01 代码与前端形态 -->
+  <div class="group group-blue">
+    <div class="group-title">01 代码与前端形态</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">单文件 SPA</div>
+        <div class="box-sub">index.html 内嵌全部<br>CSS/JS/数据，约 6000 行</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">PWA 外壳</div>
+        <div class="box-sub">manifest + sw.js（v3.0.0）<br>导航网络优先 · 离线回退缓存<span class="badge badge-new">新增</span></div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">适老化前端</div>
+        <div class="box-sub">大字号 · 四问式 · 0.8x 慢速语音<br>两步内出结果</div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down">静态文件上传到 EdgeOne Pages</div>
+
+  <!-- 02 部署 -->
+  <div class="group group-blue">
+    <div class="group-title">02 部署到边缘节点</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">静态托管</div>
+        <div class="box-sub">index.html / manifest / sw.js<br>上传至 Pages 根目录</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">边缘函数上传</div>
+        <div class="box-sub">6 个函数按路由部署<br>auth / recognize / ask / relation / events / pair</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">环境变量注入</div>
+        <div class="box-sub">Redis 地址与 Token · 方舟 Key<br>密钥不进前端代码</div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down">构建产物下发到边缘节点</div>
+
+  <!-- 03 边缘运行时 -->
+  <div class="group group-blue">
+    <div class="group-title">03 边缘运行时</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">静态托管</div>
+        <div class="box-sub">仓库根即站点根<br>HTTPS 自动签发</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">接口路由</div>
+        <div class="box-sub">6 个函数，按路径路由<br>敏感操作强制 POST</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">V8 运行环境</div>
+        <div class="box-sub">无 Node · 1MB 请求上限<br>前端压缩 + GET 分片兜底</div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down">运行时读写 Redis 与方舟</div>
+
+  <!-- 04 外部依赖 -->
+  <div class="group group-orange">
+    <div class="group-title">04 外部依赖</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">Upstash Redis</div>
+        <div class="box-sub">账号会话 · 关系绑定 · 事件流<br>验证码 / 冷却 / 失败锁定<span class="badge badge-new">新增</span></div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">火山方舟大模型</div>
+        <div class="box-sub">doubao-seed-2.0-mini<br>多模态识药 + 文本推理</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">四类 Prompt<span class="badge badge-fix">修正</span></div>
+        <div class="box-sub">识药 · 问答 · 联合分析<br>防重复话术<span class="badge badge-new">新增</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow-down orange">全链路质量约束</div>
+
+  <!-- 05 工程与质量保障 -->
+  <div class="group group-orange">
+    <div class="group-title">05 工程与质量保障</div>
+    <div class="row">
+      <div class="box">
+        <div class="box-main">语法守卫</div>
+        <div class="box-sub">部署前 node --check<br>py_compile 全量校验</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">AI 幻觉守卫<span class="badge badge-new">新增</span></div>
+        <div class="box-sub">三级药品库匹配抑制编造<br>证据不足降级为"咨询药师"</div>
+      </div>
+      <div class="arrow-r">→</div>
+      <div class="box">
+        <div class="box-main">安全降级守卫<span class="badge badge-new">新增</span></div>
+        <div class="box-sub">防重复/规则/本地记录不依赖网络<br>AI 失败静默降级不阻断流程</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function show(i) {
+  document.querySelectorAll('.diagram').forEach((d, idx) => d.classList.toggle('active', idx === i));
+  document.querySelectorAll('.tab').forEach((t, idx) => t.classList.toggle('active', idx === i));
+}
+</script>
+</body>
+</html>

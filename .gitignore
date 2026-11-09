@@ -13,14 +13,15 @@ __pycache__/
 *.pyo
 
 # 测试与脚本（部署不需要）
-test_*.py
-test_*.js
-probe_*.py
-filter_models.py
-gen_*.py
-split_screenshot.py
-screenshot*.png
-screenshot_parts/
+# 注意：加前导斜杠 = 只匹配仓库根目录，避免误伤 tools/ 下的正式工具脚本
+/test_*.py
+/test_*.js
+/probe_*.py
+/filter_models.py
+/gen_*.py
+/split_screenshot.py
+/screenshot*.png
+/screenshot_parts/
 
 # 资料包与文档（部署不需要）
 ../JDXplorers资料包/
@@ -30,6 +31,13 @@ screenshot_parts/
 # 部署上传包（由源文件生成，可随时重建）
 dist-upload/
 dist-upload.zip
+
+# 媒体下载落地目录（由 media/fetch_media.py 从 Release 拉取，合计 552.8 MB）
+/media-files/
+*.part
+
+# 流程图工作目录（成品 PNG/HTML 已归档到 docs/流程图/）
+/流程图-v2/
 
 # IDE
 .vscode/

@@ -1,0 +1,165 @@
+{
+  "_说明": "药忆项目媒体资产清单。媒体本体存放在本仓库的 GitHub Release（媒体体积超出 git 单文件 100MB 限制，无法直接入库）。",
+  "release": {
+    "tag": "media-v1",
+    "name": "媒体素材归档 media-v1",
+    "repo": "https://github.com/huojuda/yaoyi-jdxplorers",
+    "page": "https://github.com/huojuda/yaoyi-jdxplorers/releases/tag/media-v1",
+    "download_base": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1"
+  },
+  "restore": {
+    "command": "python media/fetch_media.py",
+    "说明": "脚本按本清单逐个下载并校验 sha256，校验失败会中止。"
+  },
+  "summary": {
+    "count": 16,
+    "total_bytes": 579615976,
+    "total_mb": 552.8
+  },
+  "assets": [
+    {
+      "asset": "scene-03.mp4",
+      "original_path": "video/01_AIscene/镜头3.mp4",
+      "type": "video",
+      "size": 2667318,
+      "sha256": "41da30f1290e90d904c7d5ee0af47a723e67e4e5075a138ea289a8e559bd669c",
+      "note": "AI 生成镜头 3",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-03.mp4"
+    },
+    {
+      "asset": "scene-04.mp4",
+      "original_path": "video/01_AIscene/镜头4.mp4",
+      "type": "video",
+      "size": 6496949,
+      "sha256": "e36ea6d8381f050c9d4aa47405a4e82c1fc3131b670b376b8d2bd9218fca9cfc",
+      "note": "AI 生成镜头 4",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-04.mp4"
+    },
+    {
+      "asset": "scene-05.mp4",
+      "original_path": "video/01_AIscene/镜头5.mp4",
+      "type": "video",
+      "size": 3736515,
+      "sha256": "0e60547b4e572aac15a52b4020291c8c146de8533582173cf12dd462155cb457",
+      "note": "AI 生成镜头 5",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-05.mp4"
+    },
+    {
+      "asset": "scene-05-rev.mp4",
+      "original_path": "video/01_AIscene/镜头5改.mp4",
+      "type": "video",
+      "size": 77551621,
+      "sha256": "e66880332ebe08021837e39d10615e967bb3e7a01c790cae79cf5bea35108046",
+      "note": "AI 生成镜头 5（改版，时长更长）",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-05-rev.mp4"
+    },
+    {
+      "asset": "scene-05-06.mp4",
+      "original_path": "video/01_AIscene/镜头5_6.mp4",
+      "type": "video",
+      "size": 51432174,
+      "sha256": "ee14bcbeb37324f09469a04e11c815123894c92baa418d7867c087aad50b65e6",
+      "note": "镜头 5-6 合并版",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-05-06.mp4"
+    },
+    {
+      "asset": "scene-06.mp4",
+      "original_path": "video/01_AIscene/镜头6.mp4",
+      "type": "video",
+      "size": 56585548,
+      "sha256": "4bc773a17c4c38fd789b928a897a5a6cb1f0ff9eede76d107e233d5aa994f660",
+      "note": "AI 生成镜头 6",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-06.mp4"
+    },
+    {
+      "asset": "scene-07.mp4",
+      "original_path": "video/01_AIscene/镜头7.mp4",
+      "type": "video",
+      "size": 78083597,
+      "sha256": "b4649cb64c3e3189aa8ebb16703a977a02456876feb9bca7f26cf3e63ef8e6fe",
+      "note": "AI 生成镜头 7",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-07.mp4"
+    },
+    {
+      "asset": "scene-08.mp4",
+      "original_path": "video/01_AIscene/镜头8.mp4",
+      "type": "video",
+      "size": 126789965,
+      "sha256": "76889b5c2f29630d6050ee975ac5d4562ef18ab0388f1284e1b7e20603decf0e",
+      "note": "AI 生成镜头 8（最大单文件，超 GitHub 单文件 100MB 限制）",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-08.mp4"
+    },
+    {
+      "asset": "scene-09.mp4",
+      "original_path": "video/01_AIscene/镜头9.mp4",
+      "type": "video",
+      "size": 42742413,
+      "sha256": "c13462fa1b1186d41c29f64bb8234b9be3c458f1267c371221c8020855ac9054",
+      "note": "AI 生成镜头 9",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-09.mp4"
+    },
+    {
+      "asset": "scene-09-alt.mp4",
+      "original_path": "video/01_AIscene/镜9.mp4",
+      "type": "video",
+      "size": 58796206,
+      "sha256": "422ca1043ce8908cb978c42c0de83c906afb664e3a72b869e6b09171b04af6c5",
+      "note": "镜头 9 的另一版本",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/scene-09-alt.mp4"
+    },
+    {
+      "asset": "table-morning.mp4",
+      "original_path": "video/01_AIscene/清晨室内长木桌场景 (1).mp4",
+      "type": "video",
+      "size": 378911,
+      "sha256": "f7a2d3ef9bdefec658081d4772d040d04abf1e390a790299c4065c09847bce53",
+      "note": "场景参考短片：清晨室内长木桌",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/table-morning.mp4"
+    },
+    {
+      "asset": "table-morning.jpg",
+      "original_path": "video/01_AIscene/清晨室内长木桌场景.jpeg",
+      "type": "image",
+      "size": 2053113,
+      "sha256": "f0b09ccc7f3e03187561bfd1169ca5574338cdcf55ea713f0fbcff517c9ac4b7",
+      "note": "场景参考图：清晨室内长木桌",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/table-morning.jpg"
+    },
+    {
+      "asset": "ref-s1.jpg",
+      "original_path": "video/01_AIscene/s1.jpeg",
+      "type": "image",
+      "size": 3466195,
+      "sha256": "1dec11e155ccd0c75742269d55df5d67271309423b387c9895a0e0be6298330d",
+      "note": "参考图 s1",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/ref-s1.jpg"
+    },
+    {
+      "asset": "ref-video-1790255719575.mp4",
+      "original_path": "video/01_AIscene/Video-1790255719575.mp4",
+      "type": "video",
+      "size": 2057851,
+      "sha256": "394441966fbe55181fae5897782b7c99c1ce7937b85f68604cd5de22d1916add",
+      "note": "早期参考短片",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/ref-video-1790255719575.mp4"
+    },
+    {
+      "asset": "ai-scene-all.zip",
+      "original_path": "video/01_AIscene.zip",
+      "type": "archive",
+      "size": 61234265,
+      "sha256": "ab06dc7d0dd2704dfd41289eb9c3db0f4272acc0ef3f6fafc6a820140a33b9ae",
+      "note": "镜头素材压缩包（含磁盘上没有的 镜头10.mp4）",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/ai-scene-all.zip"
+    },
+    {
+      "asset": "misc-8749e0e8.mp4",
+      "original_path": "8749e0e8c39b283e8352eb10195aee4b.mp4",
+      "type": "video",
+      "size": 5543335,
+      "sha256": "7a97fc10306e74e2db61fc8e64f5bc259c0c940f651b8410e62735563427126c",
+      "note": "来源不明片段，哈希命名，疑似某次导出",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/misc-8749e0e8.mp4"
+    }
+  ]
+}
