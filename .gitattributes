@@ -1,0 +1,22 @@
+# 统一换行符策略
+#
+# 背景：本仓库的 index.html 历来是纯 LF。Windows 上若 core.autocrlf=true，
+# 检出会把它变成 CRLF（实测 315,986 B → 323,766 B，多出 7,780 个 CR），
+# 进而导致：
+#   ① 用文本模式写回时再次写出 CRLF，提交后仓库 blob 也变 CRLF；
+#   ② EdgeOne 构建产物多传约 4 KB；
+#   ③ tools/deploy_via_gitdata.py 的换行符守卫会中止部署；
+#   ④ tools/sync_local_to_remote.py 的内容寻址对不齐远端 blob。
+#
+# 所以在这里把规则写死在仓库里，不依赖每个开发者本机的 core.autocrlf 设置。
+
+* text=auto eol=lf
+
+# 二进制文件：禁止任何转换、禁止文本 diff
+*.mp3  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.zip  binary
+*.mp4  binary
+*.ico  binary

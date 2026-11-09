@@ -51,6 +51,32 @@ ls tts/*.mp3 | wc -l          # 应为 48
 ls edge-functions/api/        # 应为 6 个 js
 ```
 
+#### 关于换行符（Windows 必读）
+
+仓库里 `index.html` 是**纯 LF**，长度 315,986 字节。仓库已用 `.gitattributes` 声明
+`* text=auto eol=lf`，正常情况下检出来仍是 LF。
+
+但在**加了 `.gitattributes` 之前的旧克隆**上，如果本机 `core.autocrlf=true`，
+检出会变成 CRLF：315,986 → **323,766 字节**（多出 7,780 个 CR）。这不是文件损坏，
+是 git 的本地转换。想确认仓库里到底是什么内容，绕过工作区看 blob：
+
+```bash
+git cat-file -s HEAD:index.html        # 应为 315986
+git cat-file -p HEAD:index.html | md5sum
+# 期望 e9067e27c17ad9e0d994371b3141972a  ← 与线上站点逐字节一致
+```
+
+CRLF 会带来四个具体后果（都已踩过）：EdgeOne 产物多传约 4 KB；
+`tools/deploy_via_gitdata.py` 的换行符守卫会中止部署；
+`tools/sync_local_to_remote.py` 的内容寻址对不齐远端 blob；
+本机 `git push` 会撞 non-fast-forward。
+
+若你的旧克隆已是 CRLF，转换回来：
+
+```bash
+git rm --cached -r . && git reset --hard
+```
+
 ### 第 2 步：拉取媒体资产
 
 ```bash
