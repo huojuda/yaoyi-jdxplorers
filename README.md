@@ -211,7 +211,7 @@
 ```
 yaoyi-jdxplorers/                  ← 仓库根 = EdgeOne 站点根
 │
-├── index.html                     # 单文件 SPA，整个前端（253,803 字符 / 7,781 行）
+├── index.html                     # 单文件 SPA，整个前端（253,803 字符 / 7,780 行）
 ├── manifest.json                  # PWA 应用清单（图标内联 data-URI）
 ├── sw.js                          # Service Worker（导航网络优先 + 离线回退）
 ├── tts/                           # 48 个预渲染语音 mp3（6.9 MB，唯一发声手段）
@@ -232,7 +232,7 @@ yaoyi-jdxplorers/                  ← 仓库根 = EdgeOne 站点根
 │   ├── 宣传视频-制作标准.md
 │   └── 密钥治理报告.md             # 密钥收敛、清除、上线核验全过程
 │
-├── tools/                         # 开发与部署脚本（8 个，全为 Python 标准库）
+├── tools/                         # 开发与部署脚本（9 个，全为 Python 标准库）
 │   ├── gen_tts_audio.py           # 【关键】改话术后重新生成 48 个 mp3
 │   ├── write_tts_manifest.py      # 写 PRERENDERED_TTS 清单与文本指纹
 │   ├── analyze_yaoyi.py           # 从 index.html 现查药品/规则/音频/存储键规模

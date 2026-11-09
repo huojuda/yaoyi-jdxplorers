@@ -22,11 +22,11 @@ python media/fetch_media.py
 
 | 类别 | 内容 | 来源 |
 |---|---|---|
-| 站点代码 | `index.html`（253,803 字符 / 7,781 行）、`manifest.json`、`sw.js` | `git clone` |
+| 站点代码 | `index.html`（253,803 字符 / 7,780 行）、`manifest.json`、`sw.js` | `git clone` |
 | 后端 | `edge-functions/api/` 6 个边缘函数 | `git clone` |
 | 语音资源 | `tts/` 48 个 mp3，6.9 MB | `git clone` |
 | 文档 | `docs/` 7 篇（功能介绍、实现说明、部署手册、视频脚本、密钥治理报告…） | `git clone` |
-| 工具 | `tools/` 8 个脚本（TTS 生成、规模分析、部署、同步…） | `git clone` |
+| 工具 | `tools/` 9 个脚本（TTS 生成、规模分析、部署、同步、媒体上传…） | `git clone` |
 | 配置模板 | `config/api_config.example.json`（脱敏，无密钥） | `git clone` |
 | **视频 / 图片素材** | 18 个资产，**966.8 MB**（镜头 3–9、屏幕录制 2 段、参考图、素材压缩包） | `fetch_media.py` |
 
