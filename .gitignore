@@ -42,3 +42,50 @@ dist-upload.zip
 EdgeOne-部署核对清单.md
 EdgeOne-部署执行手册.md
 药忆-创作说明.docx
+
+# ============================================================
+# 密钥与凭据防护（2026-11-08 加固）
+#
+# 本仓库根目录 = EdgeOne 站点根目录，任何被跟踪的文件都会随构建
+# 公开可下载。以下规则为兜底：即使将来往仓库里误放了凭据文件，
+# 也不会被 git 纳入版本控制、不会被推到远端、不会被公开托管。
+#
+# 实测依据：https://yaoyi.site/api_config.json 等敏感路径均返回 404。
+# ============================================================
+
+# 1) 本地密钥保险库（收敛后的唯一明文存放点，位于仓库外）
+.secrets/
+secrets.local.json
+secrets*.json
+
+# 2) 通用凭据文件形态
+*.local.json
+*.secret
+*.secrets
+*.token
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials
+credentials.*
+token*.txt
+token*.txt.*
+token*.json
+*token*.json
+
+# 3) 环境变量文件（各平台变体）
+.env
+.env.*
+.env*
+
+# 4) 云平台部署凭据
+.vercel/
+.vercel
+
+# 5) 本项目明确的密钥载体（与文件开头规则重复，此处集中声明便于审计）
+api_config.json
+api_config.local.json
+models.json
