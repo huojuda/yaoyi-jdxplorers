@@ -135,10 +135,10 @@ def main():
             print("Release 不存在，创建中…")
             status, release = api("POST", f"https://api.github.com/repos/{OWNER}/{REPO}/releases", token, {
                 "tag_name": tag, "name": rel["name"],
-                "body": "药忆项目媒体素材归档。\n\n"
-                        "共 16 个资产、552.8 MB，均为宣传视频与参考素材。\n"
+                "body": "药忆项目媒体素材归档（宣传视频、屏幕录制、参考图、素材包）。\n\n"
+                        "**数量与总大小以仓库里的 `media/MANIFEST.json` 为准**，本页只放文件。\n"
                         "请勿手动下载零散文件 —— 用仓库里的 `media/fetch_media.py`，"
-                        "它会按 `media/MANIFEST.json` 逐个下载并校验 sha256。\n\n"
+                        "它会按 MANIFEST 逐个下载并校验 sha256。\n\n"
                         "命名对照（ASCII ↔ 原始中文路径）见 MANIFEST.json 的 original_path 字段。",
                 "draft": False, "prerelease": False,
             })

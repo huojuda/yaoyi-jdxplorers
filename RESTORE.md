@@ -13,7 +13,7 @@ cd yaoyi-jdxplorers
 python media/fetch_media.py
 ```
 
-以上三条命令跑完，代码、文档、工具、48 个语音、552.8 MB 视频素材全部回到本地。
+以上三条命令跑完，代码、文档、工具、48 个语音、966.8 MB 视频素材全部回到本地。
 剩下的只有**密钥**需要你从 EdgeOne 控制台重新配置（密钥按设计不存仓库）。
 
 ---
@@ -28,7 +28,7 @@ python media/fetch_media.py
 | 文档 | `docs/` 7 篇（功能介绍、实现说明、部署手册、视频脚本、密钥治理报告…） | `git clone` |
 | 工具 | `tools/` 8 个脚本（TTS 生成、规模分析、部署、同步…） | `git clone` |
 | 配置模板 | `config/api_config.example.json`（脱敏，无密钥） | `git clone` |
-| **视频 / 图片素材** | 16 个资产，**552.8 MB**（镜头 3–9、参考图、素材压缩包） | `fetch_media.py` |
+| **视频 / 图片素材** | 18 个资产，**966.8 MB**（镜头 3–9、屏幕录制 2 段、参考图、素材压缩包） | `fetch_media.py` |
 
 ---
 
@@ -41,7 +41,8 @@ git clone https://github.com/huojuda/yaoyi-jdxplorers.git
 cd yaoyi-jdxplorers
 ```
 
-克隆下来约 **7.5 MB**。媒体不在这里，是有意为之（见第四节）。
+克隆下来**工作区文件共 8.2 MB**（84 个跟踪文件）；把 `.git` 历史算进去约 21 MB。
+媒体不在这里，是有意为之（见第四节）。
 
 **验证**：
 
@@ -100,7 +101,7 @@ python media/fetch_media.py --dest D:\yaoyi-media
 
 ```bash
 python media/fetch_media.py --check     # 只校验不下载
-# 期望：16 个资产全部 ✅
+# 期望：18 个资产全部 ✅
 ```
 
 单独补某类：
@@ -188,16 +189,16 @@ curl -sSI https://yaoyi.site/ | grep -i last-modified
 
 GitHub 对单个文件有 **100 MB 硬限制**，而 `镜头8.mp4` 是 120.9 MB，直接推会被拒。
 
-即使压到限制内，552.8 MB 全部入库还有两个后果：
+即使压到限制内，966.8 MB 全部入库还有两个后果：
 
-1. 每次 `git clone` 都要拉半 GB，而 99% 的情况下只需要代码（7.5 MB）
+1. 每次 `git clone` 都要拉半 GB，而 99% 的情况下只需要代码（8.2 MB）
 2. **一旦提交就永久留在历史里**，以后想瘦身必须重写历史，代价极高
 
 所以采用分层：
 
 ```
-代码 + 语音 + 文档 + 工具  →  git 仓库（7.5 MB）
-视频 + 图片素材            →  GitHub Release  media-v1（552.8 MB）
+代码 + 语音 + 文档 + 工具  →  git 仓库（8.2 MB）
+视频 + 图片素材            →  GitHub Release  media-v1（966.8 MB）
 ```
 
 Release 挂在本仓库下，地址是
@@ -230,8 +231,8 @@ Release 挂在本仓库下，地址是
 | 1 | `git rev-parse HEAD` | 与 GitHub 网页上的最新提交一致 |
 | 2 | `ls tts/*.mp3 \| wc -l` | **48** |
 | 3 | `ls edge-functions/api/` | **6** 个 js |
-| 4 | `python media/fetch_media.py --check` | 16 个资产全部 ✅ |
-| 5 | `media-files/` 总大小 | **552.8 MB** |
+| 4 | `python media/fetch_media.py --check` | 18 个资产全部 ✅ |
+| 5 | `media-files/` 总大小 | **966.8 MB** |
 | 6 | 站点首页可打开 | 大字号界面正常渲染 |
 | 7 | 结果页能出声 | 预渲染音频播放 |
 | 8 | `python tools/analyze_yaoyi.py` | 输出「药品 50 / 规则 40 / mp3 48」 |
@@ -251,7 +252,7 @@ Release 挂在本仓库下，地址是
 | 参赛提交件（`创作说明*.pdf` / `.docx`、`药忆功能介绍.docx`） | 属交付成品，非工程必需 | 按 `docs/功能介绍.md` 重新排版 |
 | `dist-upload/`、`dist-upload.zip` | 由源码生成的中间产物 | `python tools/build_submission_package.py` 重建 |
 | `server.py`（早期 Python 后端） | 已被边缘函数完全取代，线上 404 | 不需要 |
-| `药忆/` 归档（两段屏幕录制 413 MB） | 被 `video/` 素材取代的历史产物 | 如仍需要，另行备份 |
+| `药忆/` 归档目录（内含旧工作区副本） | 与工程本体重复的历史产物；其中两段屏幕录制已单独收进 Release | 录屏走 `fetch_media.py --only video`；其余不需要 |
 | 浏览器缓存的 `localStorage` 用户数据 | 本来就在用户设备上 | 无法恢复，且不属项目资产 |
 
 ---
@@ -260,8 +261,8 @@ Release 挂在本仓库下，地址是
 
 ```
 1. 装 Git / Python
-2. git clone                     → 代码 7.5 MB
-3. python media/fetch_media.py   → 媒体 552.8 MB（约 16 个文件）
+2. git clone                     → 代码 8.2 MB
+3. python media/fetch_media.py   → 媒体 966.8 MB（18 个文件）
 4. 配 3 个环境变量（EdgeOne 控制台 + 本地）
 5. 本地 python -m http.server 起服务自测
 6. 需要发布时：git push 或 tools/deploy_via_gitdata.py

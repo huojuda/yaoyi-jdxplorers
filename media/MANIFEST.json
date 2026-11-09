@@ -12,9 +12,9 @@
     "说明": "脚本按本清单逐个下载并校验 sha256，校验失败会中止。"
   },
   "summary": {
-    "count": 16,
-    "total_bytes": 579615976,
-    "total_mb": 552.8
+    "count": 18,
+    "total_bytes": 1013719072,
+    "total_mb": 966.8
   },
   "assets": [
     {
@@ -160,6 +160,24 @@
       "sha256": "7a97fc10306e74e2db61fc8e64f5bc259c0c940f651b8410e62735563427126c",
       "note": "来源不明片段，哈希命名，疑似某次导出",
       "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/misc-8749e0e8.mp4"
+    },
+    {
+      "asset": "rec-2026-08-29.mp4",
+      "original_path": "药忆/屏幕录制 2026-08-29 172909.mp4",
+      "type": "video",
+      "size": 116871167,
+      "sha256": "9f8ed24878d32712ad4535f111fb98b8a4170fb8d4deb42d0a515f4f722dc4c9",
+      "note": "开发过程录屏（08-29），早期版本演示，已被 video/ 素材取代但完整保留",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/rec-2026-08-29.mp4"
+    },
+    {
+      "asset": "rec-2026-09-02.mp4",
+      "original_path": "药忆/屏幕录制 2026-09-02 224302.mp4",
+      "type": "video",
+      "size": 317231929,
+      "sha256": "441a36e93a3746774aad0cbee4480d1fac5c5b73b073c6fda2429b48de5cd6b0",
+      "note": "开发过程录屏（09-02），早期版本演示，已被 video/ 素材取代但完整保留",
+      "url": "https://github.com/huojuda/yaoyi-jdxplorers/releases/download/media-v1/rec-2026-09-02.mp4"
     }
   ]
 }

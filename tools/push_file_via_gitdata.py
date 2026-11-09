@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""按文件推送单个文件到 GitHub（走 REST Git Data API，不依赖 github.com）
+"""按文件推送一个或多个文件到 GitHub（走 REST Git Data API，不依赖 github.com）
 
-本机 github.com 被 DNS 劫持（解析到 205.164.50.x），git push 不可用；
-但 api.github.com 可达。本脚本用 Git Data API 的
-blob → tree → commit → PATCH ref 四步完成一次等价于 git push 的提交。
+本机 github.com 曾被 DNS 劫持，git push 不可用；但 api.github.com 可达。
+本脚本用 Git Data API 的 blob → tree → commit → PATCH ref 四步，
+完成一次等价于 git push 的提交。
 
 与 deploy_via_gitdata.py 的分工：
   · deploy_via_gitdata.py 专用于站点主文件（index.html + tts/*.mp3），
     提交信息写死为 v1.4.3 的发布说明；
-  · 本脚本是通用单文件推送器，用于推 .gitignore 之类的非站点文件，
-    提交信息由调用方给出。
+  · 本脚本是通用推送器，用于推 .gitignore / 文档 / 工具等非站点文件，
+    可一次推多个文件，提交信息由调用方给出。
 
 用法：
     set GITHUB_TOKEN_FILE=E:\\Jd\\new-chat\\.secrets\\github_pat.txt
     python push_file_via_gitdata.py .gitignore --message-file msg.txt
-    python push_file_via_gitdata.py .gitignore --message-file msg.txt --push
+    python push_file_via_gitdata.py README.md RESTORE.md media/README.md ^
+           media/MANIFEST.json --message "docs: 修正数字" --push
 
 安全设计：
   1) 令牌只从环境变量或文件读，不落盘、不进命令行历史。
   2) 推送前校验「远端该文件的 blob == 本地 HEAD 里的 blob」，
      不一致说明远端被别人改过，直接中止，不覆盖。
   3) 建提交前不 force，PATCH ref 时用 force=false，防止覆盖他人提交。
-  4) 推送后回读远端 blob，与期望值比对，确认字节未被改动。
+  4) 文本文件若含 CRLF 直接中止 —— 本仓库 .gitattributes 声明了 eol=lf，
+     手工拼 blob 不会做换行符转换，带 CRLF 推上去会污染远端。
+  5) 推送后回读远端 blob，与期望值比对，确认字节未被改动。
 """
 
 import base64
@@ -38,10 +41,28 @@ import urllib.request
 OWNER = "huojuda"
 REPO = "yaoyi-jdxplorers"
 BRANCH = "main"
-REPO_ROOT = r"E:\Jd\new-chat\药忆-H5原型"
 API = "https://api.github.com"
 AUTHOR_NAME = "huojuda"
 AUTHOR_EMAIL = "2189916060@qq.com"
+
+
+def find_repo_root(start):
+    """从脚本位置向上找同时含 .git 与 index.html 的目录，兼容脚本被放在 tools/ 或别处。"""
+    d = os.path.abspath(start)
+    for _ in range(6):
+        if os.path.isdir(os.path.join(d, ".git")) and os.path.isfile(os.path.join(d, "index.html")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    sys.exit("错误：找不到仓库根（需同时含 .git 与 index.html）。可用 REPO_ROOT 环境变量指定。")
+
+
+REPO_ROOT = os.environ.get("REPO_ROOT") or find_repo_root(os.path.dirname(os.path.abspath(__file__)))
+
+TEXT_EXT = {".md", ".py", ".json", ".html", ".js", ".css", ".txt", ".yml",
+            ".yaml", ".xml", ".svg", ".gitignore", ".gitattributes", ""}
 
 
 def git(*args):
@@ -94,34 +115,59 @@ def api(method, url, token, payload=None):
         return None, {"error": f"{type(e).__name__}: {e}"}
 
 
-def main():
-    do_push = "--push" in sys.argv
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if not args:
-        sys.exit(__doc__)
-    rel = args[0].replace("\\", "/")
+def parse_args(argv):
+    """极简解析：位置参数=待推文件；--message/--message-file 取下一个值；--push 开关。"""
+    files, opts, i, do_push = [], {"message": None, "message_file": None}, 0, False
+    while i < len(argv):
+        a = argv[i]
+        if a == "--push":
+            do_push = True
+        elif a == "--message":
+            i += 1
+            opts["message"] = argv[i]
+        elif a == "--message-file":
+            i += 1
+            opts["message_file"] = argv[i]
+        elif a.startswith("--"):
+            sys.exit(f"未知选项：{a}")
+        else:
+            files.append(a)
+        i += 1
+    return files, opts, do_push
 
-    if "--message-file" in sys.argv:
-        mf = sys.argv[sys.argv.index("--message-file") + 1]
-        message = open(mf, encoding="utf-8").read().strip()
+
+def main():
+    files, opts, do_push = parse_args(sys.argv[1:])
+    if not files:
+        sys.exit(__doc__)
+
+    if opts["message_file"]:
+        message = open(opts["message_file"], encoding="utf-8").read().strip()
     else:
-        message = "chore(security): 加固 .gitignore"
+        message = opts["message"] or "chore: 更新仓库文件"
 
     token = read_token()
     print("[0] 令牌已读取并通过格式校验")
 
-    path = os.path.join(REPO_ROOT, rel.replace("/", os.sep))
-    if not os.path.isfile(path):
-        sys.exit(f"[X] 本地文件不存在：{rel}")
-    data = open(path, "rb").read()
-    want = blob_sha(data)
-    crlf = data.count(b"\r\n")
-    print(f"[1] 本地 {rel}：{len(data):,} B  blob={want[:12]}  CRLF={crlf}")
+    # ---- 本地读取 + 校验 ----
+    plan = []  # [(rel, data_or_None, want_sha, base_sha)]
+    for raw in files:
+        rel = raw.replace("\\", "/").lstrip("./")
+        path = os.path.join(REPO_ROOT, rel.replace("/", os.sep))
+        if not os.path.isfile(path):
+            sys.exit(f"[X] 本地文件不存在：{rel}")
+        data = open(path, "rb").read()
+        want = blob_sha(data)
+        crlf = data.count(b"\r\n")
+        ext = os.path.splitext(rel)[1].lower()
+        if crlf and (ext in TEXT_EXT or "." not in os.path.basename(rel)):
+            sys.exit(f"[X] {rel} 含 {crlf} 个 CRLF，与 .gitattributes 的 eol=lf 冲突，已中止。\n"
+                     f"    修法：python -c \"p=r'{path}';d=open(p,'rb').read();open(p,'wb').write(d.replace(b'\\r\\n',b'\\n'))\"")
+        base = git("rev-parse", f"HEAD:{rel}") or None
+        print(f"[1] {rel}：{len(data):,} B  blob={want[:12]}  CRLF={crlf}  本地基线={(base or '(未跟踪)')[:12]}")
+        plan.append((rel, data, want, base))
 
-    # 本地 HEAD 基线
-    base = git("rev-parse", f"HEAD:{rel}")
-    print(f"    本地 HEAD 基线：{base[:12] if base else '(未跟踪)'}")
-
+    # ---- 远端基线 ----
     status, ref = api("GET", f"{API}/repos/{OWNER}/{REPO}/git/ref/heads/{BRANCH}", token)
     if status != 200:
         sys.exit(f"[X] 读取分支失败（HTTP {status}）：{ref}")
@@ -138,35 +184,43 @@ def main():
         sys.exit(f"[X] 读取树失败（HTTP {status}）：{tree}")
     remote_map = {e["path"]: e.get("sha") for e in tree.get("tree", []) if e.get("type") == "blob"}
 
-    rb = remote_map.get(rel)
-    print(f"[3] 远端该文件 blob：{rb[:12] if rb else '(不存在)'}")
+    # ---- 防覆盖守卫 ----
+    todo = []
+    for rel, data, want, base in plan:
+        rb = remote_map.get(rel)
+        print(f"[3] 远端 {rel} blob：{(rb or '(不存在)')[:12]}")
+        if rb is not None and base and rb != base:
+            sys.exit(f"[X] 远端 {rel} 与本地基线不一致，已中止（避免覆盖别人的改动）。\n"
+                     f"    远端 {rb[:12]} != 本地基线 {base[:12]}")
+        if rb == want:
+            print("    [=] 远端已是这份内容，跳过")
+            continue
+        todo.append((rel, data, want))
 
-    # 防覆盖守卫
-    if rb is not None and base and rb != base:
-        sys.exit(f"[X] 远端内容与本地基线不一致，已中止（避免覆盖别人的改动）。\n"
-                 f"    远端 {rb[:12]} != 本地基线 {base[:12]}")
-    if rb == want:
-        print("[=] 远端已是这份内容，无需提交。")
+    if not todo:
+        print("\n[=] 所有文件远端都已是最新，无需提交。")
         return
-    print("    ✅ 与本地基线一致，可安全覆盖")
+    print(f"    ✅ {len(todo)} 个文件可安全写入")
 
     if not do_push:
         print("\n[干跑] 校验全部通过。加 --push 即真正提交。")
         return
 
     # 1) 上传 blob
-    status, res = api("POST", f"{API}/repos/{OWNER}/{REPO}/git/blobs", token,
-                      {"content": base64.b64encode(data).decode("ascii"), "encoding": "base64"})
-    if status not in (200, 201):
-        sys.exit(f"[X] 上传 blob 失败（HTTP {status}）：{res}")
-    if res["sha"] != want:
-        sys.exit(f"[X] blob 校验失败：GitHub 返回 {res['sha'][:12]}，本地算得 {want[:12]}")
-    print(f"[4] blob 已上传并校验一致：{want[:12]}")
+    entries = []
+    for rel, data, want in todo:
+        status, res = api("POST", f"{API}/repos/{OWNER}/{REPO}/git/blobs", token,
+                          {"content": base64.b64encode(data).decode("ascii"), "encoding": "base64"})
+        if status not in (200, 201):
+            sys.exit(f"[X] 上传 {rel} 的 blob 失败（HTTP {status}）：{res}")
+        if res["sha"] != want:
+            sys.exit(f"[X] {rel} blob 校验失败：GitHub 返回 {res['sha'][:12]}，本地算得 {want[:12]}")
+        entries.append({"path": rel, "mode": "100644", "type": "blob", "sha": want})
+        print(f"[4] blob 已上传并校验一致：{rel} → {want[:12]}")
 
     # 2) 建树（base_tree 合并）
     status, res = api("POST", f"{API}/repos/{OWNER}/{REPO}/git/trees", token,
-                      {"base_tree": base_tree,
-                       "tree": [{"path": rel, "mode": "100644", "type": "blob", "sha": want}]})
+                      {"base_tree": base_tree, "tree": entries})
     if status not in (200, 201):
         sys.exit(f"[X] 建树失败（HTTP {status}）：{res}")
     new_tree = res["sha"]
@@ -194,6 +248,8 @@ def main():
     got = ref2.get("object", {}).get("sha") if status == 200 else None
     print(f"[8] 回读远端 HEAD：{got[:12] if got else '读取失败'}  "
           f"{'✅ 一致' if got == new_commit else '⚠️ 不一致'}")
+    if got != new_commit:
+        sys.exit("[X] 回读不一致，请检查分支保护规则")
     print(f"\n完成。https://github.com/{OWNER}/{REPO}/commit/{new_commit}")
 
 

@@ -12,7 +12,7 @@
 > ```bash
 > git clone https://github.com/huojuda/yaoyi-jdxplorers.git
 > cd yaoyi-jdxplorers
-> python media/fetch_media.py      # 拉取 552.8 MB 视频/图片素材并校验
+> python media/fetch_media.py      # 拉取 966.8 MB 视频/图片素材并校验
 > ```
 
 
@@ -246,7 +246,7 @@ yaoyi-jdxplorers/                  ← 仓库根 = EdgeOne 站点根
 │   └── api_config.example.json    # 脱敏配置模板（真实密钥只在 EdgeOne 环境变量）
 │
 ├── media/                         # 媒体资源（本体在 Release，清单和下载器在仓库）
-│   ├── MANIFEST.json              # 16 个资产的 sha256 + 下载地址 + 原始路径
+│   ├── MANIFEST.json              # 18 个资产的 sha256 + 下载地址 + 原始路径
 │   ├── fetch_media.py             # 一键下载并逐字节校验
 │   └── README.md                  # 媒体存放策略说明
 │
@@ -257,8 +257,8 @@ yaoyi-jdxplorers/                  ← 仓库根 = EdgeOne 站点根
 
 ### 为什么媒体不在 git 里
 
-GitHub 对单个文件有 **100 MB 硬限制**，而 `镜头8.mp4` 是 120.9 MB；16 个媒体资产合计
-552.8 MB，直接入库会让每次 `git clone` 都要拉半 GB，且以后再也删不掉（历史永久保留）。
+GitHub 对单个文件有 **100 MB 硬限制**，而 `镜头8.mp4` 是 120.9 MB；18 个媒体资产合计
+966.8 MB，直接入库会让每次 `git clone` 都要拉半 GB，且以后再也删不掉（历史永久保留）。
 
 所以采取**代码入 git、媒体入 Release** 的分层策略：
 
@@ -268,7 +268,7 @@ GitHub 对单个文件有 **100 MB 硬限制**，而 `镜头8.mp4` 是 120.9 MB�
 | 边缘函数（6 个 js） | git 仓库 | `git clone` |
 | 预渲染语音（48 个 mp3，6.9 MB） | git 仓库 | `git clone`，同时也从站点直接可取 |
 | 文档与工具脚本 | git 仓库 | `git clone` |
-| 视频与图片素材（552.8 MB） | **GitHub Release `media-v1`** | `python media/fetch_media.py` |
+| 视频与图片素材（966.8 MB） | **GitHub Release `media-v1`** | `python media/fetch_media.py` |
 
 Release 挂在本仓库下（`/releases/tag/media-v1`），所以**仓库仍是唯一恢复来源** ——
 不需要另找网盘或第三方存储。
